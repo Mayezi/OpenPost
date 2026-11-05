@@ -8,11 +8,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Release version tag (e.g. v2.0.0)'
-        required: false
-        default: 'v2.0.0'
 
 permissions:
   contents: write
@@ -20,20 +15,19 @@ permissions:
 env:
   OPENPOST_OFFLINE_ONLY: '1'
   TAURI_TELEMETRY_DISABLED: '1'
-  NODE_VERSION: '22.x'
 
 jobs:
   verify-and-lint:
-    name: Typecheck & Production Build (Node ${{ env.NODE_VERSION }})
+    name: Typecheck & Production Build (Node 22)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: '22'
 
       - name: Install Dependencies
         run: npm install --no-audit --no-fund
@@ -74,10 +68,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: '22'
 
       - name: Install Dependencies
         run: npm install --no-audit --no-fund
@@ -85,7 +79,7 @@ jobs:
       - name: Build Frontend Production Assets
         run: npm run build
 
-      - name: Package Standalone Desktop Bundle (${{ matrix.target_os }})
+      - name: Package Standalone Desktop Bundle
         env:
           TARGET_OS: ${{ matrix.target_os }}
           TARGET_ARCH: ${{ matrix.target_arch }}

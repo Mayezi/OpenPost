@@ -235,7 +235,7 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
   const osConfigs = {
     github: {
       title: 'GitHub Actions 跨平台自动打包矩阵 (Win / macOS / Linux)',
-      targets: 'Node 22.x · React 19 · Vite 8 · Tailwind v4 · ESBuild Standalone',
+      targets: 'Node 22 · React 19 · Vite 8 · Tailwind v4 · ESBuild Standalone',
       scriptName: 'release.yml',
       code: `name: openPost Multi-Platform Desktop Release (Win / macOS / Linux)
 
@@ -254,17 +254,16 @@ permissions:
 env:
   OPENPOST_OFFLINE_ONLY: '1'
   TAURI_TELEMETRY_DISABLED: '1'
-  NODE_VERSION: '22.x'
 
 jobs:
   verify-and-lint:
-    name: Typecheck & Production Build (Node \${{ env.NODE_VERSION }})
+    name: Typecheck & Production Build (Node 22)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: \${{ env.NODE_VERSION }}
+          node-version: '22'
       - run: npm install --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
@@ -299,10 +298,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: \${{ env.NODE_VERSION }}
+          node-version: '22'
       - run: npm install --no-audit --no-fund
       - run: npm run build
-      - name: Package Standalone Desktop Bundle (\${{ matrix.target_os }})
+      - name: Package Standalone Desktop Bundle
         env:
           TARGET_OS: \${{ matrix.target_os }}
           TARGET_ARCH: \${{ matrix.target_arch }}

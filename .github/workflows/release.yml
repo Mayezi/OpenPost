@@ -17,8 +17,38 @@ env:
   NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
 
 jobs:
-  build-and-package:
-    name: Build ${{ matrix.label }}
+  build-frontend:
+    name: Build Frontend Assets (Ubuntu Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Clean Lockfile & Install Dependencies
+        run: |
+          rm -f package-lock.json bun.lock
+          npm install --no-package-lock --no-audit --no-fund
+
+      - name: TypeScript Check & Build Frontend Dist
+        run: |
+          npm run lint
+          npm run build
+
+      - name: Upload Compiled Frontend Assets (dist/)
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          if-no-files-found: error
+
+  build-rust-desktop:
+    name: Compile Rust Native ${{ matrix.label }}
+    needs: build-frontend
     permissions:
       contents: write
     strategy:
@@ -46,21 +76,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+      - name: Download Compiled Frontend Assets into dist/
+        uses: actions/download-artifact@v4
         with:
-          node-version: '22'
+          name: frontend-dist
+          path: dist/
 
       - name: Setup Rust Stable Toolchain
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Frontend Dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: TypeScript Check & Build Frontend Assets
-        run: |
-          npm run lint
-          npm run build
 
       - name: Compile Standalone Rust Native Binary (${{ matrix.bin_name }})
         run: cargo build --release --manifest-path rust-desktop/Cargo.toml

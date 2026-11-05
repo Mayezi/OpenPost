@@ -3,6 +3,10 @@ build/
 dist/
 release-dist/
 rust-desktop/target/
+openpost_vault/
+zeropost_vault/
+package-lock.json
+bun.lock
 coverage/
 .DS_Store
 *.log

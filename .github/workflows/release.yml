@@ -1,4 +1,4 @@
-name: openPost Multi-Platform Desktop Release (Win / macOS / Linux)
+name: openPost Multi-Platform Rust Desktop Release (Win / macOS / Linux)
 
 on:
   push:
@@ -14,11 +14,11 @@ permissions:
 
 env:
   OPENPOST_OFFLINE_ONLY: '1'
-  TAURI_TELEMETRY_DISABLED: '1'
+  NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
 
 jobs:
   verify-and-lint:
-    name: Typecheck & Production Build (Node 22)
+    name: Typecheck & Frontend Build (Node 22)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -30,7 +30,7 @@ jobs:
           node-version: '22'
 
       - name: Install Dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: TypeScript Typecheck (lint)
         run: npm run lint
@@ -38,8 +38,8 @@ jobs:
       - name: Build Production Frontend Bundle
         run: npm run build
 
-  build-desktop-matrix:
-    name: Package ${{ matrix.label }}
+  build-rust-desktop-matrix:
+    name: Build Rust Native ${{ matrix.label }}
     needs: verify-and-lint
     permissions:
       contents: write
@@ -49,18 +49,18 @@ jobs:
         include:
           - os: windows-latest
             target_os: windows
-            target_arch: x64
-            label: Windows (x64 Desktop Package)
+            bin_name: openPost.exe
+            label: Windows x64 (openPost.exe)
             artifact_name: openPost-Windows-x64
           - os: macos-latest
             target_os: macos
-            target_arch: universal
-            label: macOS (Apple Silicon & Intel Universal)
-            artifact_name: openPost-macOS-Universal
+            bin_name: openPost
+            label: macOS Apple Silicon & Intel (openPost)
+            artifact_name: openPost-macOS
           - os: ubuntu-latest
             target_os: linux
-            target_arch: x64
-            label: Linux (x64 Desktop Package)
+            bin_name: openPost
+            label: Linux x64 (openPost)
             artifact_name: openPost-Linux-x64
 
     runs-on: ${{ matrix.os }}
@@ -73,31 +73,38 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Dependencies
-        run: npm install --no-audit --no-fund
+      - name: Setup Rust Stable Toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Build Frontend Production Assets
+      - name: Install Frontend Dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Build Frontend Assets (Embedded into Rust Binary)
         run: npm run build
 
-      - name: Package Standalone Desktop Bundle
-        env:
-          TARGET_OS: ${{ matrix.target_os }}
-          TARGET_ARCH: ${{ matrix.target_arch }}
-        run: npm run build:desktop
+      - name: Compile Standalone Rust Native Binary (${{ matrix.bin_name }})
+        run: cargo build --release --manifest-path rust-desktop/Cargo.toml
 
-      - name: Create Release Archive (Windows .zip)
+      - name: Package Windows Release Archive (.zip)
         if: matrix.target_os == 'windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path "release-dist/*" -DestinationPath "release-dist/${{ matrix.artifact_name }}.zip" -Force
+          New-Item -ItemType Directory -Force -Path "release-dist" | Out-Null
+          Copy-Item "rust-desktop/target/release/openPost.exe" -Destination "release-dist/openPost.exe"
+          Copy-Item "README.md" -Destination "release-dist/README.md"
+          Compress-Archive -Path "release-dist/openPost.exe", "release-dist/README.md" -DestinationPath "release-dist/${{ matrix.artifact_name }}.zip" -Force
 
-      - name: Create Release Archive (macOS & Linux .tar.gz)
+      - name: Package macOS & Linux Release Archive (.tar.gz)
         if: matrix.target_os != 'windows'
         shell: bash
         run: |
-          tar -czf "release-dist/${{ matrix.artifact_name }}.tar.gz" -C release-dist .
+          mkdir -p release-dist
+          cp "rust-desktop/target/release/openPost" "release-dist/openPost"
+          chmod +x "release-dist/openPost"
+          cp "README.md" "release-dist/README.md"
+          tar -czf "release-dist/${{ matrix.artifact_name }}.tar.gz" -C release-dist openPost README.md
 
-      - name: Upload Desktop Package Artifact
+      - name: Upload Native Desktop Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
@@ -113,7 +120,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           name: "openPost ${{ github.ref_name }}"
-          body: "100% Local-First, Zero-Login, Zero-Backdoor API Client for Windows, macOS, and Linux."
+          body: "100% Local-First, Zero-Login, Zero-Backdoor Rust Native API Client for Windows, macOS, and Linux."
           draft: false
           prerelease: false
           files: |

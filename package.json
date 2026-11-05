@@ -11,6 +11,7 @@
     "start": "NODE_ENV=production tsx server.ts",
     "build": "vite build",
     "build:desktop": "node scripts/package-desktop.mjs",
+    "build:rust": "npm run build && cargo build --release --manifest-path rust-desktop/Cargo.toml",
     "preview": "vite preview",
     "clean": "rm -rf dist release-dist server.js",
     "lint": "tsc --noEmit"
@@ -32,7 +33,6 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",

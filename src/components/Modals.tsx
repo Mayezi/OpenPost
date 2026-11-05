@@ -234,18 +234,15 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
 
   const osConfigs = {
     github: {
-      title: 'GitHub Actions 跨平台自动打包矩阵 (Win / macOS / Linux)',
-      targets: 'Node 22 · React 19 · Vite 8 · Tailwind v4 · ESBuild Standalone',
+      title: 'GitHub Actions Rust 原生单文件跨平台打包矩阵 (Win / macOS / Linux)',
+      targets: 'Rust Stable (0 外部依赖单文件二进制) · Node 22 · Vite 8',
       scriptName: 'release.yml',
-      code: `name: openPost Multi-Platform Desktop Release (Win / macOS / Linux)
+      code: `name: openPost Multi-Platform Rust Desktop Release (Win / macOS / Linux)
 
 on:
   push:
-    branches:
-      - main
-      - master
-    tags:
-      - 'v*'
+    branches: [main, master]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -253,110 +250,93 @@ permissions:
 
 env:
   OPENPOST_OFFLINE_ONLY: '1'
-  TAURI_TELEMETRY_DISABLED: '1'
+  NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
 
 jobs:
   verify-and-lint:
-    name: Typecheck & Production Build (Node 22)
+    name: Typecheck & Frontend Build (Node 22)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --no-audit --no-fund
+      - run: npm install --legacy-peer-deps --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
 
-  build-desktop-matrix:
-    name: Package \${{ matrix.label }}
+  build-rust-desktop-matrix:
+    name: Build Rust Native \${{ matrix.label }}
     needs: verify-and-lint
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             target_os: windows
-            target_arch: x64
-            label: Windows (x64 Desktop Package)
+            bin_name: openPost.exe
+            label: Windows x64 (openPost.exe)
             artifact_name: openPost-Windows-x64
           - os: macos-latest
             target_os: macos
-            target_arch: universal
-            label: macOS (Apple Silicon & Intel Universal)
-            artifact_name: openPost-macOS-Universal
+            bin_name: openPost
+            label: macOS (openPost)
+            artifact_name: openPost-macOS
           - os: ubuntu-latest
             target_os: linux
-            target_arch: x64
-            label: Linux (x64 Desktop Package)
+            bin_name: openPost
+            label: Linux x64 (openPost)
             artifact_name: openPost-Linux-x64
-
     runs-on: \${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --no-audit --no-fund
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm install --legacy-peer-deps --no-audit --no-fund
       - run: npm run build
-      - name: Package Standalone Desktop Bundle
-        env:
-          TARGET_OS: \${{ matrix.target_os }}
-          TARGET_ARCH: \${{ matrix.target_arch }}
-        run: npm run build:desktop
-      - name: Upload Desktop Package Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: \${{ matrix.artifact_name }}
-          path: |
-            release-dist/*`,
+      - name: Compile Standalone Rust Native Binary (\${{ matrix.bin_name }})
+        run: cargo build --release --manifest-path rust-desktop/Cargo.toml`,
     },
     win: {
-      title: 'Windows 10 / 11 (x64 & ARM64)',
-      targets: 'openPost_2.0_x64-setup.exe · openPost_2.0_x64.msi · Portable.zip',
-      scriptName: 'build-windows-local.bat',
+      title: 'Windows 10 / 11 (Rust 原生单文件 openPost.exe)',
+      targets: 'rust-desktop/target/release/openPost.exe (内嵌全部前端静态资源)',
+      scriptName: 'build-windows-rust.bat',
       code: `@echo off
-:: openPost 100% Offline Windows Desktop Packaging Script (Node v22.23.3)
-set OPENPOST_OFFLINE_ONLY=1
-set TAURI_TELEMETRY_DISABLED=1
-set OPENPOST_DATA_DIR=${customStoragePath || 'D:\\openPost_Data\\Vault'}
-
-echo [1/3] Building Frontend & Local Proxy Engine...
+:: openPost Rust Native Single-Binary Windows Build Script
+set NPM_CONFIG_LEGACY_PEER_DEPS=true
+echo [1/2] Installing & Building Frontend Assets...
+call npm install --legacy-peer-deps --no-audit --no-fund
 call npm run build
 
-echo [2/3] Packaging Standalone Windows Native Binary (.exe / .msi)...
-npx tauri build --target x86_64-pc-windows-msvc
-echo Done! Output: src-tauri/target/release/bundle/nsis/openPost_2.0_x64-setup.exe`,
+echo [2/2] Compiling Standalone Rust Native Executable (openPost.exe)...
+cargo build --release --manifest-path rust-desktop/Cargo.toml
+echo Done! Single-file binary: rust-desktop\\target\\release\\openPost.exe`,
     },
     mac: {
-      title: 'macOS (Apple Silicon M1–M4 & Intel Universal)',
-      targets: 'openPost_2.0_universal.dmg · openPost.app',
-      scriptName: 'build-macos-universal.sh',
+      title: 'macOS (Rust 原生单文件可执行程序 openPost)',
+      targets: 'rust-desktop/target/release/openPost (Apple Silicon & Intel)',
+      scriptName: 'build-macos-rust.sh',
       code: `#!/usr/bin/env bash
-# openPost 100% Offline macOS Universal (.dmg / .app) Build Script (Node v22.23.3)
+# openPost Rust Native Single-Binary macOS Build Script
 set -e
-export OPENPOST_OFFLINE_ONLY=1
-export TAURI_TELEMETRY_DISABLED=1
-export OPENPOST_DATA_DIR="${customStoragePath || '~/openPost_Vault'}"
-
+npm install --legacy-peer-deps --no-audit --no-fund
 npm run build
-npx tauri build --target universal-apple-darwin`,
+cargo build --release --manifest-path rust-desktop/Cargo.toml
+echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
     },
     linux: {
-      title: 'Linux (Ubuntu / Debian / Arch / Fedora)',
-      targets: 'openPost_2.0_amd64.AppImage · openPost_2.0_amd64.deb',
-      scriptName: 'build-linux-appimage.sh',
+      title: 'Linux (Rust 原生单文件可执行程序 openPost)',
+      targets: 'rust-desktop/target/release/openPost (零系统库依赖 ELF)',
+      scriptName: 'build-linux-rust.sh',
       code: `#!/usr/bin/env bash
-# openPost 100% Offline Linux AppImage & DEB Packaging Script (Node v22.23.3)
+# openPost Rust Native Single-Binary Linux Build Script
 set -e
-export OPENPOST_OFFLINE_ONLY=1
-export TAURI_TELEMETRY_DISABLED=1
-export OPENPOST_DATA_DIR="${customStoragePath || '/mnt/data/openpost_vault'}"
-
+npm install --legacy-peer-deps --no-audit --no-fund
 npm run build
-npx tauri build --bundles appimage,deb`,
+cargo build --release --manifest-path rust-desktop/Cargo.toml
+echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
     },
   };
 

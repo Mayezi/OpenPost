@@ -1,0 +1,18 @@
+[package]
+name = "openPost"
+version = "2.0.0"
+edition = "2021"
+description = "openPost 100% Local-First Native Rust Desktop Runtime (Zero External Crate Dependencies)"
+license = "Apache-2.0"
+
+[[bin]]
+name = "openPost"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+
+[dependencies]

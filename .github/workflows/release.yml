@@ -1,4 +1,4 @@
-name: openPost Multi-Platform Rust Desktop Release (Win / macOS / Linux)
+name: openPost Rust Desktop Release (Win / macOS / Linux)
 
 on:
   push:
@@ -17,30 +17,8 @@ env:
   NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
 
 jobs:
-  verify-and-lint:
-    name: Typecheck & Frontend Build (Node 22)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install Dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund
-
-      - name: TypeScript Typecheck (lint)
-        run: npm run lint
-
-      - name: Build Production Frontend Bundle
-        run: npm run build
-
-  build-rust-desktop-matrix:
-    name: Build Rust Native ${{ matrix.label }}
-    needs: verify-and-lint
+  build-and-package:
+    name: Build ${{ matrix.label }}
     permissions:
       contents: write
     strategy:
@@ -55,7 +33,7 @@ jobs:
           - os: macos-latest
             target_os: macos
             bin_name: openPost
-            label: macOS Apple Silicon & Intel (openPost)
+            label: macOS (openPost)
             artifact_name: openPost-macOS
           - os: ubuntu-latest
             target_os: linux
@@ -77,15 +55,17 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Frontend Dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund
+        run: npm install --no-audit --no-fund
 
-      - name: Build Frontend Assets (Embedded into Rust Binary)
-        run: npm run build
+      - name: TypeScript Check & Build Frontend Assets
+        run: |
+          npm run lint
+          npm run build
 
       - name: Compile Standalone Rust Native Binary (${{ matrix.bin_name }})
         run: cargo build --release --manifest-path rust-desktop/Cargo.toml
 
-      - name: Package Windows Release Archive (.zip)
+      - name: Package Windows Release (.zip)
         if: matrix.target_os == 'windows'
         shell: pwsh
         run: |
@@ -94,7 +74,7 @@ jobs:
           Copy-Item "README.md" -Destination "release-dist/README.md"
           Compress-Archive -Path "release-dist/openPost.exe", "release-dist/README.md" -DestinationPath "release-dist/${{ matrix.artifact_name }}.zip" -Force
 
-      - name: Package macOS & Linux Release Archive (.tar.gz)
+      - name: Package macOS & Linux Release (.tar.gz)
         if: matrix.target_os != 'windows'
         shell: bash
         run: |
@@ -104,7 +84,7 @@ jobs:
           cp "README.md" "release-dist/README.md"
           tar -czf "release-dist/${{ matrix.artifact_name }}.tar.gz" -C release-dist openPost README.md
 
-      - name: Upload Native Desktop Artifact
+      - name: Upload Desktop Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}

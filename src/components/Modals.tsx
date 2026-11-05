@@ -235,9 +235,9 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
   const osConfigs = {
     github: {
       title: 'GitHub Actions Rust 原生单文件跨平台打包矩阵 (Win / macOS / Linux)',
-      targets: 'Rust Stable (0 外部依赖单文件二进制) · Node 22 · Vite 8',
+      targets: 'Rust Stable (0 外部依赖单文件二进制) · Node 22 · 极简 5 项核心依赖',
       scriptName: 'release.yml',
-      code: `name: openPost Multi-Platform Rust Desktop Release (Win / macOS / Linux)
+      code: `name: openPost Rust Desktop Release (Win / macOS / Linux)
 
 on:
   push:
@@ -253,21 +253,10 @@ env:
   NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
 
 jobs:
-  verify-and-lint:
-    name: Typecheck & Frontend Build (Node 22)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm install --legacy-peer-deps --no-audit --no-fund
-      - run: npm run lint
-      - run: npm run build
-
-  build-rust-desktop-matrix:
-    name: Build Rust Native \${{ matrix.label }}
-    needs: verify-and-lint
+  build-and-package:
+    name: Build \${{ matrix.label }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -294,8 +283,8 @@ jobs:
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
-      - run: npm install --legacy-peer-deps --no-audit --no-fund
-      - run: npm run build
+      - run: npm install --no-audit --no-fund
+      - run: npm run lint && npm run build
       - name: Compile Standalone Rust Native Binary (\${{ matrix.bin_name }})
         run: cargo build --release --manifest-path rust-desktop/Cargo.toml`,
     },

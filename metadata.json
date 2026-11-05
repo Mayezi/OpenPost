@@ -1,0 +1,6 @@
+{
+  "name": "ZeroPost Local API Studio",
+  "description": "100% local-first, zero-login, zero-backdoor API debugging and testing client for Windows, macOS, and Linux with curated AI tool themes (Claude Code, GitHub, DeepSeek, OpenAI Codex).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,107 @@
+name: openPost Multi-Platform Desktop Release (Win / macOS / Linux)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release version tag (e.g. v2.0.0)'
+        required: false
+        default: 'v2.0.0'
+
+permissions:
+  contents: write
+
+env:
+  OPENPOST_OFFLINE_ONLY: '1'
+  TAURI_TELEMETRY_DISABLED: '1'
+  NODE_VERSION: '22.23.3'
+
+jobs:
+  verify-and-lint:
+    name: Typecheck & Production Bundle (Node ${{ env.NODE_VERSION }})
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }} (Synced with Project Runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: TypeScript Typecheck (lint)
+        run: npm run lint
+
+      - name: Build Production Web & Local Proxy Assets
+        run: npm run build
+
+  build-desktop-matrix:
+    name: Build ${{ matrix.label }}
+    needs: verify-and-lint
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'windows-latest'
+            label: 'Windows (x64 .exe & .msi)'
+            args: '--target x86_64-pc-windows-msvc'
+          - platform: 'macos-latest'
+            label: 'macOS Universal (Apple Silicon & Intel .dmg / .app)'
+            args: '--target universal-apple-darwin'
+          - platform: 'ubuntu-24.04'
+            label: 'Linux (x64 .AppImage & .deb)'
+            args: '--bundles appimage,deb'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }} (Synced with Project Runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Linux Native WebKitGTK Dependencies
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Rust Stable Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust Build Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Frontend & Local Engine Dependencies
+        run: npm ci
+
+      - name: Build Frontend Production Bundle
+        run: npm run build
+
+      - name: Package Native Desktop Installers (Tauri v2 Stable)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name || inputs.release_tag || 'v2.0.0' }}
+          releaseName: 'openPost ${{ github.ref_name || inputs.release_tag || 'v2.0.0' }}'
+          releaseBody: '100% Local-First, Zero-Login, Zero-Backdoor API Client for Windows, macOS, and Linux.'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

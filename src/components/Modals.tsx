@@ -235,12 +235,15 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
   const osConfigs = {
     github: {
       title: 'GitHub Actions 跨平台自动打包矩阵 (Win / macOS / Linux)',
-      targets: 'Node 22.23.3 · React 19 · Vite 8 · Tailwind v4 · Tauri v2 Stable',
+      targets: 'Node 22.x · React 19 · Vite 8 · Tailwind v4 · ESBuild Standalone',
       scriptName: 'release.yml',
       code: `name: openPost Multi-Platform Desktop Release (Win / macOS / Linux)
 
 on:
   push:
+    branches:
+      - main
+      - master
     tags:
       - 'v*'
   workflow_dispatch:
@@ -251,24 +254,23 @@ permissions:
 env:
   OPENPOST_OFFLINE_ONLY: '1'
   TAURI_TELEMETRY_DISABLED: '1'
-  NODE_VERSION: '22.23.3' # 与当前项目 Node.js 运行时版本严格保持一致
+  NODE_VERSION: '22.x'
 
 jobs:
   verify-and-lint:
-    name: Typecheck & Production Bundle (Node \${{ env.NODE_VERSION }})
-    runs-on: ubuntu-24.04
+    name: Typecheck & Production Build (Node \${{ env.NODE_VERSION }})
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node.js \${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: \${{ env.NODE_VERSION }}
-          cache: 'npm'
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
 
   build-desktop-matrix:
+    name: Package \${{ matrix.label }}
     needs: verify-and-lint
     permissions:
       contents: write
@@ -276,43 +278,41 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'windows-latest'
-            label: 'Windows (x64 .exe & .msi)'
-            args: '--target x86_64-pc-windows-msvc'
-          - platform: 'macos-latest'
-            label: 'macOS Universal (Apple Silicon & Intel .dmg / .app)'
-            args: '--target universal-apple-darwin'
-          - platform: 'ubuntu-24.04'
-            label: 'Linux (x64 .AppImage & .deb)'
-            args: '--bundles appimage,deb'
+          - os: windows-latest
+            target_os: windows
+            target_arch: x64
+            label: Windows (x64 Desktop Package)
+            artifact_name: openPost-Windows-x64
+          - os: macos-latest
+            target_os: macos
+            target_arch: universal
+            label: macOS (Apple Silicon & Intel Universal)
+            artifact_name: openPost-macOS-Universal
+          - os: ubuntu-latest
+            target_os: linux
+            target_arch: x64
+            label: Linux (x64 Desktop Package)
+            artifact_name: openPost-Linux-x64
 
-    runs-on: \${{ matrix.platform }}
+    runs-on: \${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node.js \${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: \${{ env.NODE_VERSION }}
-          cache: 'npm'
-      - name: Install Linux Native WebKitGTK Dependencies
-        if: matrix.platform == 'ubuntu-24.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: \${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-      - uses: swatinem/rust-cache@v2
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
       - run: npm run build
-      - name: Package Native Desktop Installers (Tauri v2 Stable)
-        uses: tauri-apps/tauri-action@v0
+      - name: Package Standalone Desktop Bundle (\${{ matrix.target_os }})
         env:
-          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          TARGET_OS: \${{ matrix.target_os }}
+          TARGET_ARCH: \${{ matrix.target_arch }}
+        run: npm run build:desktop
+      - name: Upload Desktop Package Artifact
+        uses: actions/upload-artifact@v4
         with:
-          tagName: \${{ github.ref_name || 'v2.0.0' }}
-          releaseName: 'openPost \${{ github.ref_name || 'v2.0.0' }}'
-          args: \${{ matrix.args }}`,
+          name: \${{ matrix.artifact_name }}
+          path: |
+            release-dist/*`,
     },
     win: {
       title: 'Windows 10 / 11 (x64 & ARM64)',

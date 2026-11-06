@@ -36,6 +36,8 @@ import {
   Minimize2,
   ChevronDown,
   Save,
+  Pencil,
+  Clock,
 } from 'lucide-react';
 import {
   ApiRequestItem,
@@ -511,12 +513,172 @@ export default function App() {
   };
 
   const handleCreateFolder = () => {
+    const newId = `folder_${Date.now()}`;
+    const defaultName = `0${folders.length + 1}. 新建接口分组`;
     const newFolder: CollectionFolder = {
-      id: `folder_${Date.now()}`,
-      name: `0${folders.length + 1}. 新建接口分组`,
+      id: newId,
+      name: defaultName,
       expanded: true,
     };
     setFolders((prev) => [...prev, newFolder]);
+    setEditingFolderId(newId);
+    setEditingFolderName(defaultName);
+  };
+
+  // Folder & Request Inline Editing + Delete + Drag-and-Drop Reordering
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState<string>('');
+  const [confirmDeleteFolderId, setConfirmDeleteFolderId] = useState<string | null>(null);
+
+  const [editingSidebarReqId, setEditingSidebarReqId] = useState<string | null>(null);
+  const [editingSidebarReqName, setEditingSidebarReqName] = useState<string>('');
+
+  const [dragState, setDragState] = useState<{
+    type: 'folder' | 'request';
+    id: string;
+    sourceFolderId?: string;
+  } | null>(null);
+
+  const [dropIndicator, setDropIndicator] = useState<{
+    targetType: 'folder' | 'request';
+    targetId: string;
+    position: 'before' | 'after' | 'inside';
+  } | null>(null);
+
+  const handleStartRenameFolder = (folder: CollectionFolder, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setConfirmDeleteFolderId(null);
+    setEditingFolderId(folder.id);
+    setEditingFolderName(folder.name);
+  };
+
+  const handleCommitRenameFolder = (folderId: string) => {
+    const trimmed = editingFolderName.trim();
+    if (trimmed) {
+      setFolders((prev) =>
+        prev.map((f) => (f.id === folderId ? { ...f, name: trimmed } : f))
+      );
+    }
+    setEditingFolderId(null);
+    setEditingFolderName('');
+  };
+
+  const handleDeleteFolder = (folderId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const removedReqIds = new Set(
+      requests.filter((r) => r.folderId === folderId).map((r) => r.id)
+    );
+    setFolders((prev) => prev.filter((f) => f.id !== folderId));
+    setRequests((prev) => prev.filter((r) => r.folderId !== folderId));
+    setOpenTabIds((prev) => {
+      const nextTabs = prev.filter((id) => !removedReqIds.has(id));
+      if (removedReqIds.has(activeRequestId)) {
+        setActiveRequestId(nextTabs[nextTabs.length - 1] || '');
+      }
+      return nextTabs;
+    });
+    setConfirmDeleteFolderId(null);
+  };
+
+  const handleStartRenameSidebarReq = (req: ApiRequestItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditingSidebarReqId(req.id);
+    setEditingSidebarReqName(req.name);
+  };
+
+  const handleCommitRenameSidebarReq = (reqId: string) => {
+    const trimmed = editingSidebarReqName.trim();
+    if (trimmed) {
+      setRequests((prev) =>
+        prev.map((r) => (r.id === reqId ? { ...r, name: trimmed } : r))
+      );
+    }
+    setEditingSidebarReqId(null);
+    setEditingSidebarReqName('');
+  };
+
+  const handleClearDrag = () => {
+    setDragState(null);
+    setDropIndicator(null);
+  };
+
+  const handleFolderDropAction = (
+    targetFolderId: string,
+    position: 'before' | 'after' | 'inside'
+  ) => {
+    if (!dragState) return;
+    if (dragState.type === 'folder') {
+      if (dragState.id === targetFolderId) {
+        handleClearDrag();
+        return;
+      }
+      setFolders((prev) => {
+        const fromIdx = prev.findIndex((f) => f.id === dragState.id);
+        const toIdx = prev.findIndex((f) => f.id === targetFolderId);
+        if (fromIdx === -1 || toIdx === -1) return prev;
+        const next = [...prev];
+        const [moved] = next.splice(fromIdx, 1);
+        const updatedTargetIdx = next.findIndex((f) => f.id === targetFolderId);
+        const insertAt = position === 'after' ? updatedTargetIdx + 1 : updatedTargetIdx;
+        next.splice(insertAt, 0, moved);
+        return next;
+      });
+    } else if (dragState.type === 'request') {
+      // Moving request into targetFolderId
+      setRequests((prev) => {
+        const fromIdx = prev.findIndex((r) => r.id === dragState.id);
+        if (fromIdx === -1) return prev;
+        const next = [...prev];
+        const [moved] = next.splice(fromIdx, 1);
+        const updatedMoved: ApiRequestItem = { ...moved, folderId: targetFolderId };
+        // Place at end of requests belonging to targetFolderId
+        let lastInFolderIdx = -1;
+        next.forEach((r, idx) => {
+          if (r.folderId === targetFolderId) lastInFolderIdx = idx;
+        });
+        if (lastInFolderIdx === -1) {
+          next.push(updatedMoved);
+        } else {
+          next.splice(lastInFolderIdx + 1, 0, updatedMoved);
+        }
+        return next;
+      });
+      // Expand target folder automatically
+      setFolders((prev) =>
+        prev.map((f) => (f.id === targetFolderId ? { ...f, expanded: true } : f))
+      );
+    }
+    handleClearDrag();
+  };
+
+  const handleRequestDropAction = (
+    targetReq: ApiRequestItem,
+    position: 'before' | 'after'
+  ) => {
+    if (!dragState || dragState.type !== 'request') {
+      handleClearDrag();
+      return;
+    }
+    if (dragState.id === targetReq.id) {
+      handleClearDrag();
+      return;
+    }
+    setRequests((prev) => {
+      const fromIdx = prev.findIndex((r) => r.id === dragState.id);
+      if (fromIdx === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      const updatedMoved: ApiRequestItem = { ...moved, folderId: targetReq.folderId };
+      const targetIdx = next.findIndex((r) => r.id === targetReq.id);
+      if (targetIdx === -1) {
+        next.push(updatedMoved);
+        return next;
+      }
+      const insertAt = position === 'after' ? targetIdx + 1 : targetIdx;
+      next.splice(insertAt, 0, updatedMoved);
+      return next;
+    });
+    handleClearDrag();
   };
 
   const handleQuickSaveEnvVar = useCallback(
@@ -582,15 +744,21 @@ export default function App() {
         });
       }
 
+      const maxHist = Number(localStorage.getItem('openpost_max_history')) || 100;
       const entry: HistoryEntry = {
         id: `hist_${Date.now()}`,
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }),
         request: JSON.parse(JSON.stringify(targetReq)),
         status: res.status,
         durationMs: res.timing.totalMs,
         sizeBytes: res.sizeBytes,
       };
-      setHistory((prev) => [entry, ...prev.slice(0, 99)]);
+      setHistory((prev) => [entry, ...prev.slice(0, Math.max(1, maxHist - 1))]);
       setLoadingReqId(null);
     },
     [activeRequest, activeEnv, engineMode, loadingReqId, handleQuickSaveEnvVar]
@@ -1280,202 +1448,638 @@ export default function App() {
               {/* Tree or History List */}
               <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
                 {sidebarMode === 'collections' ? (
-                  folders.map((folder) => {
-                    const folderReqs = filteredRequests.filter((r) => r.folderId === folder.id);
-                    const isExpanded = folder.expanded !== false;
-                    return (
-                      <div key={folder.id} className="space-y-0.5">
+                  folders.length === 0 ? (
+                    <div
+                      className="p-4 text-center text-xs rounded-lg border border-dashed"
+                      style={{
+                        borderColor: 'var(--zp-border)',
+                        color: 'var(--zp-text-muted)',
+                      }}
+                    >
+                      <p className="mb-2">当前暂无接口集合目录</p>
+                      <button
+                        type="button"
+                        onClick={handleCreateFolder}
+                        className="px-2.5 py-1 rounded-md border text-xs font-medium hover:opacity-90"
+                        style={{
+                          borderColor: 'var(--zp-border)',
+                          backgroundColor: 'var(--zp-accent-soft)',
+                          color: 'var(--zp-accent)',
+                        }}
+                      >
+                        + 新建首个集合目录
+                      </button>
+                    </div>
+                  ) : (
+                    folders.map((folder) => {
+                      const folderReqs = filteredRequests.filter((r) => r.folderId === folder.id);
+                      const isExpanded = folder.expanded !== false;
+                      const isEditingFolder = editingFolderId === folder.id;
+                      const isConfirmingDelete = confirmDeleteFolderId === folder.id;
+                      const isFolderDropTarget =
+                        dropIndicator?.targetType === 'folder' &&
+                        dropIndicator.targetId === folder.id;
+
+                      return (
                         <div
-                          className="flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer text-xs font-semibold group transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-                          style={{ color: 'var(--zp-text-secondary)' }}
-                          onClick={() =>
-                            setFolders((prev) =>
-                              prev.map((f) =>
-                                f.id === folder.id ? { ...f, expanded: !isExpanded } : f
-                              )
-                            )
-                          }
+                          key={folder.id}
+                          className="space-y-0.5 relative"
+                          onDragOver={(e) => {
+                            if (!dragState) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const relY = e.clientY - rect.top;
+                            if (dragState.type === 'request') {
+                              setDropIndicator({
+                                targetType: 'folder',
+                                targetId: folder.id,
+                                position: 'inside',
+                              });
+                            } else {
+                              setDropIndicator({
+                                targetType: 'folder',
+                                targetId: folder.id,
+                                position: relY < 16 ? 'before' : 'after',
+                              });
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleFolderDropAction(
+                              folder.id,
+                              dropIndicator?.position || 'after'
+                            );
+                          }}
                         >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <motion.span
-                              animate={{ rotate: isExpanded ? 90 : 0 }}
-                              transition={{ duration: 0.16 }}
-                              className="shrink-0 opacity-60"
-                            >
-                              <ChevronRight className="w-3.5 h-3.5" />
-                            </motion.span>
-                            {isExpanded ? (
-                              <FolderOpen
-                                className="w-3.5 h-3.5 shrink-0"
-                                style={{ color: 'var(--zp-accent)' }}
-                              />
-                            ) : (
-                              <Folder
-                                className="w-3.5 h-3.5 shrink-0"
-                                style={{ color: 'var(--zp-text-muted)' }}
-                              />
+                          {isFolderDropTarget && dropIndicator?.position === 'before' && (
+                            <div
+                              className="h-0.5 rounded-full mx-1 pointer-events-none"
+                              style={{ backgroundColor: 'var(--zp-accent)' }}
+                            />
+                          )}
+
+                          <div
+                            draggable={!isEditingFolder}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              setDragState({ type: 'folder', id: folder.id });
+                              e.dataTransfer.effectAllowed = 'move';
+                            }}
+                            onDragEnd={handleClearDrag}
+                            className="flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-xs font-semibold group transition-colors hover:bg-black/5 dark:hover:bg-white/5 border"
+                            style={{
+                              color: 'var(--zp-text-secondary)',
+                              borderColor:
+                                isFolderDropTarget && dropIndicator?.position === 'inside'
+                                  ? 'var(--zp-accent)'
+                                  : 'transparent',
+                              backgroundColor:
+                                isFolderDropTarget && dropIndicator?.position === 'inside'
+                                  ? 'var(--zp-accent-soft)'
+                                  : undefined,
+                            }}
+                            onClick={() => {
+                              if (isEditingFolder) return;
+                              setFolders((prev) =>
+                                prev.map((f) =>
+                                  f.id === folder.id ? { ...f, expanded: !isExpanded } : f
+                                )
+                              );
+                            }}
+                            onDoubleClick={(e) => handleStartRenameFolder(folder, e)}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <motion.span
+                                animate={{ rotate: isExpanded ? 90 : 0 }}
+                                transition={{ duration: 0.16 }}
+                                className="shrink-0 opacity-60"
+                              >
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </motion.span>
+                              {isExpanded ? (
+                                <FolderOpen
+                                  className="w-3.5 h-3.5 shrink-0"
+                                  style={{ color: 'var(--zp-accent)' }}
+                                />
+                              ) : (
+                                <Folder
+                                  className="w-3.5 h-3.5 shrink-0"
+                                  style={{ color: 'var(--zp-text-muted)' }}
+                                />
+                              )}
+
+                              {isEditingFolder ? (
+                                <input
+                                  type="text"
+                                  value={editingFolderName}
+                                  autoFocus
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => setEditingFolderName(e.target.value)}
+                                  onBlur={() => handleCommitRenameFolder(folder.id)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleCommitRenameFolder(folder.id);
+                                    } else if (e.key === 'Escape') {
+                                      setEditingFolderId(null);
+                                      setEditingFolderName('');
+                                    }
+                                  }}
+                                  className="w-full px-1.5 py-0.5 rounded border text-xs font-medium outline-none"
+                                  style={{
+                                    backgroundColor: 'var(--zp-bg-canvas)',
+                                    borderColor: 'var(--zp-accent)',
+                                    color: 'var(--zp-text-primary)',
+                                  }}
+                                />
+                              ) : (
+                                <span
+                                  className="truncate select-none"
+                                  title="双击重命名集合，按住可拖动排序"
+                                >
+                                  {folder.name}
+                                </span>
+                              )}
+                            </div>
+
+                            {!isEditingFolder && (
+                              <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCreateNewRequest(folder.id);
+                                  }}
+                                  className="opacity-60 hover:opacity-100 p-1 rounded-md"
+                                  title="在此集合下新建接口"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleStartRenameFolder(folder, e)}
+                                  className="opacity-0 group-hover:opacity-75 hover:!opacity-100 p-1 rounded-md transition-opacity"
+                                  title="重命名此集合"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConfirmDeleteFolderId(
+                                      isConfirmingDelete ? null : folder.id
+                                    );
+                                  }}
+                                  className="opacity-0 group-hover:opacity-75 hover:!opacity-100 hover:text-rose-500 p-1 rounded-md transition-opacity"
+                                  title="删除此集合"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
                             )}
-                            <span className="truncate">{folder.name}</span>
                           </div>
+
+                          {isConfirmingDelete && (
+                            <div
+                              className="mx-2 my-1 p-2 rounded-lg border text-[11px] flex items-center justify-between gap-2"
+                              style={{
+                                backgroundColor: 'var(--zp-bg-elevated)',
+                                borderColor: 'var(--zp-border)',
+                                color: 'var(--zp-text-primary)',
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span className="truncate">
+                                确认删除「{folder.name}」及下属 {folderReqs.length} 个接口？
+                              </span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDeleteFolder(folder.id, e)}
+                                  className="px-2 py-0.5 rounded bg-rose-500 text-white font-semibold hover:bg-rose-600"
+                                >
+                                  删除
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteFolderId(null)}
+                                  className="px-2 py-0.5 rounded border hover:opacity-80"
+                                  style={{ borderColor: 'var(--zp-border)' }}
+                                >
+                                  取消
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          <AnimatePresence initial={false}>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                                className="overflow-hidden pl-3.5 space-y-0.5"
+                              >
+                                {folderReqs.length === 0 ? (
+                                  <p
+                                    className="px-2.5 py-1.5 text-xs italic"
+                                    style={{ color: 'var(--zp-text-muted)' }}
+                                  >
+                                    暂无接口（可将其他接口拖入此目录）
+                                  </p>
+                                ) : (
+                                  folderReqs.map((req) => {
+                                    const isSelected = req.id === activeRequest?.id;
+                                    const mStyle = METHOD_COLORS[req.method];
+                                    const isEditingReq = editingSidebarReqId === req.id;
+                                    const isReqDropTarget =
+                                      dropIndicator?.targetType === 'request' &&
+                                      dropIndicator.targetId === req.id;
+
+                                    return (
+                                      <div
+                                        key={req.id}
+                                        className="relative"
+                                        onDragOver={(e) => {
+                                          if (!dragState || dragState.type !== 'request') return;
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          const rect = e.currentTarget.getBoundingClientRect();
+                                          const relY = e.clientY - rect.top;
+                                          setDropIndicator({
+                                            targetType: 'request',
+                                            targetId: req.id,
+                                            position: relY < rect.height / 2 ? 'before' : 'after',
+                                          });
+                                        }}
+                                        onDrop={(e) => {
+                                          if (!dragState || dragState.type !== 'request') return;
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          handleRequestDropAction(
+                                            req,
+                                            dropIndicator?.position === 'after'
+                                              ? 'after'
+                                              : 'before'
+                                          );
+                                        }}
+                                      >
+                                        {isReqDropTarget &&
+                                          dropIndicator?.position === 'before' && (
+                                            <div
+                                              className="h-0.5 rounded-full mx-1 pointer-events-none"
+                                              style={{ backgroundColor: 'var(--zp-accent)' }}
+                                            />
+                                          )}
+
+                                        <div
+                                          draggable={!isEditingReq}
+                                          onDragStart={(e) => {
+                                            e.stopPropagation();
+                                            setDragState({
+                                              type: 'request',
+                                              id: req.id,
+                                              sourceFolderId: req.folderId,
+                                            });
+                                            e.dataTransfer.effectAllowed = 'move';
+                                          }}
+                                          onDragEnd={handleClearDrag}
+                                          onClick={() => {
+                                            if (!isEditingReq) {
+                                              handleOpenRequestTab(req.id);
+                                            }
+                                          }}
+                                          onDoubleClick={(e) =>
+                                            handleStartRenameSidebarReq(req, e)
+                                          }
+                                          className="flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-lg text-xs cursor-pointer group zp-surface-transition border"
+                                          style={{
+                                            backgroundColor: isSelected
+                                              ? 'var(--zp-bg-elevated)'
+                                              : 'transparent',
+                                            borderColor: isSelected
+                                              ? 'var(--zp-border)'
+                                              : 'transparent',
+                                            color: isSelected
+                                              ? 'var(--zp-text-primary)'
+                                              : 'var(--zp-text-secondary)',
+                                          }}
+                                        >
+                                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                                            <span
+                                              className={`font-mono-tabular font-bold text-[11px] w-11 shrink-0 ${mStyle.text}`}
+                                            >
+                                              {req.method}
+                                            </span>
+                                            {isEditingReq ? (
+                                              <input
+                                                type="text"
+                                                value={editingSidebarReqName}
+                                                autoFocus
+                                                onClick={(e) => e.stopPropagation()}
+                                                onChange={(e) =>
+                                                  setEditingSidebarReqName(e.target.value)
+                                                }
+                                                onBlur={() =>
+                                                  handleCommitRenameSidebarReq(req.id)
+                                                }
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    handleCommitRenameSidebarReq(req.id);
+                                                  } else if (e.key === 'Escape') {
+                                                    setEditingSidebarReqId(null);
+                                                    setEditingSidebarReqName('');
+                                                  }
+                                                }}
+                                                className="w-full px-1.5 py-0.5 rounded border text-xs font-medium outline-none"
+                                                style={{
+                                                  backgroundColor: 'var(--zp-bg-canvas)',
+                                                  borderColor: 'var(--zp-accent)',
+                                                  color: 'var(--zp-text-primary)',
+                                                }}
+                                              />
+                                            ) : (
+                                              <span
+                                                className="truncate font-medium select-none"
+                                                title="双击重命名接口，按住可拖动排序或移至其他目录"
+                                              >
+                                                {req.name}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {!isEditingReq && (
+                                            <div className="hidden group-hover:flex items-center gap-1 shrink-0">
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleOpenRequestTab(req.id);
+                                                  handleSendRequest(req);
+                                                }}
+                                                className="p-0.5 hover:opacity-80"
+                                                style={{ color: 'var(--zp-accent)' }}
+                                                title="立即发送此请求"
+                                              >
+                                                <Play className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={(e) =>
+                                                  handleStartRenameSidebarReq(req, e)
+                                                }
+                                                className="p-0.5 hover:opacity-80"
+                                                title="重命名接口"
+                                              >
+                                                <Pencil className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={(e) => handleDuplicateRequest(req, e)}
+                                                className="p-0.5 hover:opacity-80"
+                                                title="克隆接口"
+                                              >
+                                                <Copy className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={(e) => handleDeleteRequest(req.id, e)}
+                                                className="p-0.5 hover:text-rose-500"
+                                                title="删除接口"
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {isReqDropTarget &&
+                                          dropIndicator?.position === 'after' && (
+                                            <div
+                                              className="h-0.5 rounded-full mx-1 pointer-events-none"
+                                              style={{ backgroundColor: 'var(--zp-accent)' }}
+                                            />
+                                          )}
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+
+                          {isFolderDropTarget && dropIndicator?.position === 'after' && (
+                            <div
+                              className="h-0.5 rounded-full mx-1 pointer-events-none"
+                              style={{ backgroundColor: 'var(--zp-accent)' }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })
+                  )
+                ) : history.length === 0 ? (
+                  <div
+                    className="p-5 text-center text-xs rounded-xl border border-dashed my-2"
+                    style={{
+                      color: 'var(--zp-text-muted)',
+                      borderColor: 'var(--zp-border)',
+                    }}
+                  >
+                    <History className="w-6 h-6 mx-auto mb-2 opacity-40" />
+                    <p className="font-medium mb-1" style={{ color: 'var(--zp-text-secondary)' }}>
+                      暂无本地请求记录
+                    </p>
+                    <p className="text-[11px] leading-relaxed">
+                      发送任意接口请求后，将在此实时记录状态码、耗时与报文快照。
+                    </p>
+                  </div>
+                ) : (
+                  (() => {
+                    const q = searchQuery.trim().toLowerCase();
+                    const filteredHistory = q
+                      ? history.filter(
+                          (h) =>
+                            h.request.name.toLowerCase().includes(q) ||
+                            h.request.url.toLowerCase().includes(q) ||
+                            h.request.method.toLowerCase().includes(q) ||
+                            String(h.status).includes(q)
+                        )
+                      : history;
+
+                    return (
+                      <div className="space-y-1.5">
+                        <div
+                          className="flex items-center justify-between px-2 py-1 border-b text-[11px]"
+                          style={{
+                            borderColor: 'var(--zp-border-subtle)',
+                            color: 'var(--zp-text-muted)',
+                          }}
+                        >
+                          <span>
+                            共 {filteredHistory.length} 条记录
+                            {q ? ` (已过滤)` : ''}
+                          </span>
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCreateNewRequest(folder.id);
-                            }}
-                            className="opacity-60 hover:opacity-100 p-0.5 rounded-md"
-                            title="在此目录下新建接口"
+                            onClick={() => setHistory([])}
+                            className="inline-flex items-center gap-1 hover:text-rose-500 transition-colors"
                           >
-                            <Plus className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3 h-3" />
+                            <span>清空全部</span>
                           </button>
                         </div>
 
-                        <AnimatePresence initial={false}>
-                          {isExpanded && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                              className="overflow-hidden pl-3.5 space-y-0.5"
-                            >
-                              {folderReqs.length === 0 ? (
-                                <p
-                                  className="px-2.5 py-1 text-xs"
-                                  style={{ color: 'var(--zp-text-muted)' }}
-                                >
-                                  暂无匹配接口
-                                </p>
-                              ) : (
-                                folderReqs.map((req) => {
-                                  const isSelected = req.id === activeRequest?.id;
-                                  const mStyle = METHOD_COLORS[req.method];
-                                  return (
-                                    <div
-                                      key={req.id}
-                                      onClick={() => handleOpenRequestTab(req.id)}
-                                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer group zp-surface-transition border"
-                                      style={{
-                                        backgroundColor: isSelected
-                                          ? 'var(--zp-bg-elevated)'
-                                          : 'transparent',
-                                        borderColor: isSelected
-                                          ? 'var(--zp-border)'
-                                          : 'transparent',
-                                        color: isSelected
-                                          ? 'var(--zp-text-primary)'
-                                          : 'var(--zp-text-secondary)',
-                                      }}
+                        {filteredHistory.length === 0 ? (
+                          <div
+                            className="p-4 text-center text-xs"
+                            style={{ color: 'var(--zp-text-muted)' }}
+                          >
+                            未找到匹配「{searchQuery}」的历史记录
+                          </div>
+                        ) : (
+                          filteredHistory.map((h) => {
+                            const mStyle = METHOD_COLORS[h.request.method] || METHOD_COLORS.GET;
+                            const isSuccess = h.status >= 200 && h.status < 300;
+                            const isRedirect = h.status >= 300 && h.status < 400;
+                            const statusColor =
+                              h.status === 0 || h.status >= 500
+                                ? 'text-rose-500 bg-rose-500/10 border-rose-500/30'
+                                : h.status >= 400
+                                ? 'text-amber-500 bg-amber-500/10 border-amber-500/30'
+                                : isRedirect
+                                ? 'text-sky-500 bg-sky-500/10 border-sky-500/30'
+                                : isSuccess
+                                ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30'
+                                : 'text-slate-400 bg-slate-500/10 border-slate-500/30';
+
+                            const sizeLabel =
+                              h.sizeBytes && h.sizeBytes > 0
+                                ? h.sizeBytes >= 1024
+                                  ? `${(h.sizeBytes / 1024).toFixed(1)} KB`
+                                  : `${h.sizeBytes} B`
+                                : '';
+
+                            return (
+                              <div
+                                key={h.id}
+                                onClick={() => {
+                                  const existing = requests.find((r) => r.id === h.request.id);
+                                  if (existing) {
+                                    handleOpenRequestTab(existing.id);
+                                  } else {
+                                    setRequests((prev) => [...prev, h.request]);
+                                    handleOpenRequestTab(h.request.id);
+                                  }
+                                }}
+                                className="p-2.5 rounded-xl border text-xs cursor-pointer group zp-surface-transition hover:border-[var(--zp-accent)]"
+                                style={{
+                                  backgroundColor: 'var(--zp-bg-canvas)',
+                                  borderColor: 'var(--zp-border-subtle)',
+                                }}
+                              >
+                                {/* Row 1: Method + Request Name + Status Badge / Hover Actions */}
+                                <div className="flex items-center justify-between gap-1.5 mb-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                    <span
+                                      className={`font-mono-tabular font-bold text-[10px] px-1.5 py-0.5 rounded shrink-0 ${mStyle.bg} ${mStyle.text}`}
                                     >
-                                      <div className="flex items-center gap-2 min-w-0">
-                                        <span
-                                          className={`font-mono-tabular font-bold text-[11px] w-11 shrink-0 ${mStyle.text}`}
-                                        >
-                                          {req.method}
-                                        </span>
-                                        <span className="truncate font-medium">{req.name}</span>
-                                      </div>
-                                      <div className="hidden group-hover:flex items-center gap-1 shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleOpenRequestTab(req.id);
-                                            handleSendRequest(req);
-                                          }}
-                                          className="p-0.5 hover:opacity-80"
-                                          style={{ color: 'var(--zp-accent)' }}
-                                          title="立即发送此请求"
-                                        >
-                                          <Play className="w-3 h-3" />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => handleDuplicateRequest(req, e)}
-                                          className="p-0.5 hover:opacity-80"
-                                          title="克隆接口"
-                                        >
-                                          <Copy className="w-3 h-3" />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => handleDeleteRequest(req.id, e)}
-                                          className="p-0.5 hover:text-rose-500"
-                                          title="删除接口"
-                                        >
-                                          <Trash2 className="w-3 h-3" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })
-                              )}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                                      {h.request.method}
+                                    </span>
+                                    <span
+                                      className="font-medium truncate"
+                                      style={{ color: 'var(--zp-text-primary)' }}
+                                      title={h.request.name}
+                                    >
+                                      {h.request.name || '未命名请求'}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <span
+                                      className={`font-mono-tabular font-semibold text-[10px] px-1.5 py-0.5 rounded border ${statusColor}`}
+                                    >
+                                      {h.status > 0 ? h.status : 'ERR'}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const existing = requests.find(
+                                          (r) => r.id === h.request.id
+                                        );
+                                        if (existing) {
+                                          handleOpenRequestTab(existing.id);
+                                          handleSendRequest(existing);
+                                        } else {
+                                          setRequests((prev) => [...prev, h.request]);
+                                          handleOpenRequestTab(h.request.id);
+                                          handleSendRequest(h.request);
+                                        }
+                                      }}
+                                      className="hidden group-hover:inline-flex p-0.5 rounded hover:opacity-80"
+                                      style={{ color: 'var(--zp-accent)' }}
+                                      title="重新发送此请求"
+                                    >
+                                      <Play className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setHistory((prev) =>
+                                          prev.filter((item) => item.id !== h.id)
+                                        );
+                                      }}
+                                      className="hidden group-hover:inline-flex p-0.5 rounded hover:text-rose-500"
+                                      style={{ color: 'var(--zp-text-muted)' }}
+                                      title="删除此条记录"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Row 2: Monospace URL */}
+                                <p
+                                  className="font-mono-tabular text-[11px] truncate mb-1.5"
+                                  style={{ color: 'var(--zp-text-secondary)' }}
+                                  title={h.request.url}
+                                >
+                                  {h.request.url}
+                                </p>
+
+                                {/* Row 3: Latency, Size & Timestamp */}
+                                <div
+                                  className="flex items-center justify-between gap-2 text-[10px] font-mono-tabular pt-1 border-t"
+                                  style={{
+                                    borderColor: 'var(--zp-border-subtle)',
+                                    color: 'var(--zp-text-muted)',
+                                  }}
+                                >
+                                  <span className="inline-flex items-center gap-1 truncate">
+                                    <Clock className="w-2.5 h-2.5 shrink-0" />
+                                    <span>{h.durationMs} ms</span>
+                                    {sizeLabel && (
+                                      <>
+                                        <span>·</span>
+                                        <span>{sizeLabel}</span>
+                                      </>
+                                    )}
+                                  </span>
+                                  <span className="shrink-0">{h.timestamp}</span>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
                       </div>
                     );
-                  })
-                ) : history.length === 0 ? (
-                  <div className="p-4 text-center text-xs" style={{ color: 'var(--zp-text-muted)' }}>
-                    暂无本地请求记录。发送任意请求后将在此显示耗时与状态历史。
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <div className="flex justify-end px-2 pb-1">
-                      <button
-                        type="button"
-                        onClick={() => setHistory([])}
-                        className="text-xs hover:underline"
-                        style={{ color: 'var(--zp-text-muted)' }}
-                      >
-                        清空本地历史
-                      </button>
-                    </div>
-                    {history.map((h) => {
-                      const mStyle = METHOD_COLORS[h.request.method];
-                      return (
-                        <div
-                          key={h.id}
-                          onClick={() => {
-                            const existing = requests.find((r) => r.id === h.request.id);
-                            if (existing) {
-                              handleOpenRequestTab(existing.id);
-                            } else {
-                              setRequests((prev) => [...prev, h.request]);
-                              handleOpenRequestTab(h.request.id);
-                            }
-                          }}
-                          className="p-2.5 rounded-lg border text-xs cursor-pointer zp-surface-transition hover:opacity-90"
-                          style={{
-                            backgroundColor: 'var(--zp-bg-canvas)',
-                            borderColor: 'var(--zp-border-subtle)',
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <span
-                              className={`font-mono-tabular font-bold text-xs ${mStyle.text}`}
-                            >
-                              {h.request.method}
-                            </span>
-                            <span
-                              className="font-mono-tabular text-xs"
-                              style={{ color: 'var(--zp-text-muted)' }}
-                            >
-                              {h.status > 0 ? `HTTP ${h.status}` : 'ERR'} · {h.durationMs} ms ·{' '}
-                              {h.timestamp}
-                            </span>
-                          </div>
-                          <p
-                            className="font-mono-tabular text-xs truncate"
-                            style={{ color: 'var(--zp-text-secondary)' }}
-                          >
-                            {h.request.url}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  })()
                 )}
               </div>
             </motion.aside>

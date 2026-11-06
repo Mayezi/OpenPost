@@ -111,9 +111,38 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
   const [syncingDisk, setSyncingDisk] = useState(false);
 
   // Network settings
-  const [timeoutMs, setTimeoutMs] = useState('30000');
-  const [verifySsl, setVerifySsl] = useState(true);
-  const [maxHistoryItems, setMaxHistoryItems] = useState('100');
+  const [timeoutMs, setTimeoutMs] = useState(
+    () => localStorage.getItem('openpost_timeout_ms') || '30000'
+  );
+  const [verifySsl, setVerifySsl] = useState(
+    () => localStorage.getItem('openpost_verify_ssl') !== 'false'
+  );
+  const [maxHistoryItems, setMaxHistoryItems] = useState(
+    () => localStorage.getItem('openpost_max_history') || '100'
+  );
+
+  const persistNetworkConfig = (
+    nextTimeout: string,
+    nextMaxHist: string,
+    nextVerifySsl: boolean
+  ) => {
+    localStorage.setItem('openpost_timeout_ms', nextTimeout);
+    localStorage.setItem('openpost_max_history', nextMaxHist);
+    localStorage.setItem('openpost_verify_ssl', String(nextVerifySsl));
+    fetch('/api/storage/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        storageDir: pathInput.trim() || customStoragePath,
+        autoSyncToDisk,
+        maxHistoryItems: Number(nextMaxHist) || 100,
+        requestTimeoutMs: Number(nextTimeout) || 30000,
+        verifySsl: nextVerifySsl,
+        migrateExisting: false,
+        cleanOldDir: false,
+      }),
+    }).catch(() => {});
+  };
 
   // Desktop & GitHub CI packaging state
   const [selectedOs, setSelectedOs] = useState<'github' | 'win' | 'mac' | 'linux'>('github');
@@ -929,7 +958,10 @@ echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
                           </div>
                           <CustomSelect
                             value={timeoutMs}
-                            onChange={setTimeoutMs}
+                            onChange={(val) => {
+                              setTimeoutMs(val);
+                              persistNetworkConfig(val, maxHistoryItems, verifySsl);
+                            }}
                             minWidth={160}
                             align="right"
                             options={[
@@ -953,7 +985,10 @@ echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
                           </div>
                           <CustomSelect
                             value={maxHistoryItems}
-                            onChange={setMaxHistoryItems}
+                            onChange={(val) => {
+                              setMaxHistoryItems(val);
+                              persistNetworkConfig(timeoutMs, val, verifySsl);
+                            }}
                             minWidth={160}
                             align="right"
                             options={[
@@ -977,7 +1012,11 @@ echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
                           </div>
                           <button
                             type="button"
-                            onClick={() => setVerifySsl(!verifySsl)}
+                            onClick={() => {
+                              const next = !verifySsl;
+                              setVerifySsl(next);
+                              persistNetworkConfig(timeoutMs, maxHistoryItems, next);
+                            }}
                             className="px-3 py-1.5 rounded-lg border font-medium transition-colors"
                             style={{
                               backgroundColor: verifySsl ? 'var(--zp-accent-soft)' : 'var(--zp-bg-canvas)',
@@ -1209,7 +1248,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
       id: `env_${Date.now()}`,
       name: trimmed,
       variables: [
-        { id: `v_${Date.now()}`, key: 'baseUrl', value: 'http://localhost:3000/api/mock', enabled: true },
+        { id: `v_${Date.now()}`, key: 'baseUrl', value: 'https://httpbin.org', enabled: true },
       ],
     };
     onUpdateEnvironments([...environments, created]);
@@ -1430,7 +1469,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
 }) => {
   const [tab, setTab] = useState<'curl' | 'json' | 'vault'>('curl');
   const [curlText, setCurlText] = useState(
-    `curl -X POST 'http://localhost:3000/api/mock/echo?source=curl_import' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Authorization: Bearer zp_local_token_99' \\\n  -d '{"model": "deepseek-r1-local", "stream": false, "prompt": "Hello Local API"}'`
+    `curl -X POST 'https://httpbin.org/post?source=curl_import' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Authorization: Bearer zp_local_token_99' \\\n  -d '{"service": "openPost-Desktop", "localFirst": true, "message": "Real HTTP Request"}'`
   );
   const [targetFolderId, setTargetFolderId] = useState(folders[0]?.id || 'folder_local_sandbox');
   const [jsonInput, setJsonInput] = useState('');

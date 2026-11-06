@@ -337,6 +337,7 @@ export async function executeApiRequest(
   const finalUrl = buildResolvedUrl(req, env);
   const finalHeaders = buildResolvedHeaders(req, env);
   const finalBody = buildResolvedBody(req, env);
+  const configuredTimeoutMs = Number(localStorage.getItem('openpost_timeout_ms')) || 30000;
 
   if (engine === 'local-proxy') {
     const proxyRes = await fetch('/api/proxy', {
@@ -347,7 +348,7 @@ export async function executeApiRequest(
         method: req.method,
         headers: finalHeaders,
         body: finalBody,
-        timeoutMs: 30000,
+        timeoutMs: configuredTimeoutMs,
       }),
     });
 
@@ -379,10 +380,13 @@ export async function executeApiRequest(
   } else {
     // Browser Direct Fetch
     const start = performance.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), configuredTimeoutMs);
     try {
       const init: RequestInit = {
         method: req.method,
         headers: finalHeaders,
+        signal: controller.signal,
       };
       if (finalBody !== undefined && !['GET', 'HEAD'].includes(req.method)) {
         init.body = finalBody;
@@ -391,6 +395,7 @@ export async function executeApiRequest(
       const ttfb = performance.now();
       const text = await res.text();
       const end = performance.now();
+      clearTimeout(timeoutId);
 
       const respHeaders: Record<string, string> = {};
       res.headers.forEach((v, k) => {

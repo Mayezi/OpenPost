@@ -19,7 +19,7 @@ env:
 jobs:
   build-frontend:
     name: Build Frontend Assets (Ubuntu Node 22)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
@@ -47,7 +47,7 @@ jobs:
           if-no-files-found: error
 
   build-rust-desktop:
-    name: Compile Rust Native ${{ matrix.label }}
+    name: Build Native Installer ${{ matrix.label }}
     needs: build-frontend
     permissions:
       contents: write
@@ -57,19 +57,16 @@ jobs:
         include:
           - os: windows-latest
             target_os: windows
-            bin_name: openPost.exe
-            label: Windows x64 (openPost.exe)
-            artifact_name: openPost-Windows-x64
+            label: Windows x64 (.exe Setup & Portable)
+            artifact_name: openPost-Windows-x64-Installer
           - os: macos-latest
             target_os: macos
-            bin_name: openPost
-            label: macOS (openPost)
-            artifact_name: openPost-macOS
-          - os: ubuntu-latest
+            label: macOS (.dmg Native Installer)
+            artifact_name: openPost-macOS-Installer
+          - os: ubuntu-24.04
             target_os: linux
-            bin_name: openPost
-            label: Linux x64 (openPost)
-            artifact_name: openPost-Linux-x64
+            label: Linux amd64 (.deb Native Installer)
+            artifact_name: openPost-Linux-amd64-Installer
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -85,43 +82,161 @@ jobs:
       - name: Setup Rust Stable Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Compile Standalone Rust Native Binary (${{ matrix.bin_name }})
+      - name: Compile Standalone Rust Native Binary
         run: cargo build --release --manifest-path rust-desktop/Cargo.toml
 
-      - name: Package Windows Release (.zip)
+      - name: Build Windows Native Setup.exe & Portable.exe (No Zip)
         if: matrix.target_os == 'windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "release-dist" | Out-Null
-          Copy-Item "rust-desktop/target/release/openPost.exe" -Destination "release-dist/openPost.exe"
-          Copy-Item "README.md" -Destination "release-dist/README.md"
-          Compress-Archive -Path "release-dist/openPost.exe", "release-dist/README.md" -DestinationPath "release-dist/${{ matrix.artifact_name }}.zip" -Force
+          Copy-Item "rust-desktop/target/release/openPost.exe" -Destination "release-dist/openPost-Windows-x64-Portable.exe"
 
-      - name: Package macOS & Linux Release (.tar.gz)
-        if: matrix.target_os != 'windows'
+          $icoPath = (Resolve-Path "public/icons/openpost_icon_pack/platform/windows/openpost.ico").Path
+          $exePath = (Resolve-Path "rust-desktop/target/release/openPost.exe").Path
+          $outSetup = Join-Path (Resolve-Path "release-dist").Path "openPost-Windows-x64-Setup.exe"
+
+          $nsiContent = @"
+          !include "MUI2.nsh"
+          Name "openPost"
+          OutFile "$outSetup"
+          InstallDir "`$LOCALAPPDATA\Programs\openPost"
+          RequestExecutionLevel user
+          !define MUI_ICON "$icoPath"
+          !define MUI_UNICON "$icoPath"
+          !insertmacro MUI_PAGE_DIRECTORY
+          !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_LANGUAGE "SimpChinese"
+
+          Section "Install"
+            SetOutPath "`$INSTDIR"
+            File "/oname=openPost.exe" "$exePath"
+            File "/oname=openpost.ico" "$icoPath"
+            WriteUninstaller "`$INSTDIR\Uninstall.exe"
+            CreateDirectory "`$SMPROGRAMS\openPost"
+            CreateShortCut "`$SMPROGRAMS\openPost\openPost.lnk" "`$INSTDIR\openPost.exe" "" "`$INSTDIR\openpost.ico"
+            CreateShortCut "`$DESKTOP\openPost.lnk" "`$INSTDIR\openPost.exe" "" "`$INSTDIR\openpost.ico"
+          SectionEnd
+
+          Section "Uninstall"
+            Delete "`$INSTDIR\openPost.exe"
+            Delete "`$INSTDIR\openpost.ico"
+            Delete "`$INSTDIR\Uninstall.exe"
+            Delete "`$SMPROGRAMS\openPost\openPost.lnk"
+            Delete "`$DESKTOP\openPost.lnk"
+            RMDir "`$SMPROGRAMS\openPost"
+            RMDir "`$INSTDIR"
+          SectionEnd
+          "@
+
+          Set-Content -Path "installer.nsi" -Value $nsiContent -Encoding UTF8
+          if (Get-Command makensis -ErrorAction SilentlyContinue) {
+            makensis installer.nsi
+          } elseif (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe") {
+            & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+          }
+
+      - name: Build macOS Native .dmg Installer (No Zip)
+        if: matrix.target_os == 'macos'
         shell: bash
         run: |
           mkdir -p release-dist
-          cp "rust-desktop/target/release/openPost" "release-dist/openPost"
-          chmod +x "release-dist/openPost"
-          cp "README.md" "release-dist/README.md"
-          tar -czf "release-dist/${{ matrix.artifact_name }}.tar.gz" -C release-dist openPost README.md
+          APP_DIR="dmg-staging/openPost.app/Contents"
+          mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
 
-      - name: Upload Desktop Artifact
+          cp "rust-desktop/target/release/openPost" "$APP_DIR/MacOS/openPost"
+          chmod +x "$APP_DIR/MacOS/openPost"
+
+          iconutil -c icns "public/icons/openpost_icon_pack/platform/macos/openpost.iconset" -o "$APP_DIR/Resources/openpost.icns" || true
+
+          cat > "$APP_DIR/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>openPost</string>
+            <key>CFBundleIconFile</key>
+            <string>openpost.icns</string>
+            <key>CFBundleIdentifier</key>
+            <string>dev.openpost.desktop</string>
+            <key>CFBundleName</key>
+            <string>openPost</string>
+            <key>CFBundleDisplayName</key>
+            <string>openPost</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>2.0.0</string>
+            <key>CFBundleVersion</key>
+            <string>2.0.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname "openPost" -srcfolder "dmg-staging" -ov -format UDZO "release-dist/openPost-macOS-Universal.dmg"
+
+      - name: Build Linux Native .deb Installer (No Tar/Zip)
+        if: matrix.target_os == 'linux'
+        shell: bash
+        run: |
+          mkdir -p release-dist
+          DEB_DIR="deb-staging/openpost_2.0.0_amd64"
+          mkdir -p "$DEB_DIR/DEBIAN"
+          mkdir -p "$DEB_DIR/usr/bin"
+          mkdir -p "$DEB_DIR/usr/share/applications"
+          mkdir -p "$DEB_DIR/usr/share/icons/hicolor/256x256/apps"
+
+          cp "rust-desktop/target/release/openPost" "$DEB_DIR/usr/bin/openpost"
+          chmod 0755 "$DEB_DIR/usr/bin/openpost"
+          cp "public/icons/openpost_icon_pack/png/transparent/openpost-256-transparent.png" "$DEB_DIR/usr/share/icons/hicolor/256x256/apps/openpost.png"
+
+          cat > "$DEB_DIR/DEBIAN/control" <<EOF
+          Package: openpost
+          Version: 2.0.0
+          Section: devel
+          Priority: optional
+          Architecture: amd64
+          Maintainer: openPost Contributors
+          Description: openPost 100% Local-First API Debugging Studio (Zero Login, Zero Telemetry)
+          EOF
+
+          cat > "$DEB_DIR/usr/share/applications/openpost.desktop" <<EOF
+          [Desktop Entry]
+          Name=openPost
+          Comment=100% Local-First API Debugging Studio
+          Exec=/usr/bin/openpost
+          Icon=openpost
+          Terminal=false
+          Type=Application
+          Categories=Development;WebDevelopment;
+          EOF
+
+          dpkg-deb --build "$DEB_DIR" "release-dist/openPost-Linux-amd64.deb"
+
+      - name: Upload Raw Installer to Workflow Artifacts
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
-          path: |
-            release-dist/*.zip
-            release-dist/*.tar.gz
+          path: release-dist/*
           if-no-files-found: error
 
-      - name: Publish to GitHub Releases (on Tag Push)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish Direct Installers (.exe / .dmg / .deb) to GitHub Releases
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="${GITHUB_REF_NAME}"
-          gh release view "$TAG_NAME" >/dev/null 2>&1 || gh release create "$TAG_NAME" --title "openPost $TAG_NAME" --notes "100% Local-First, Zero-Login, Zero-Backdoor Rust Native API Client for Windows, macOS, and Linux."
-          gh release upload "$TAG_NAME" release-dist/* --clobber
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            REL_TAG="${GITHUB_REF_NAME}"
+          else
+            REL_TAG="v2.0.0"
+          fi
+          gh release view "$REL_TAG" >/dev/null 2>&1 || gh release create "$REL_TAG" --title "openPost $REL_TAG (Direct Native Installers)" --notes "直接点击下方对应的原生安装包即可下载安装（无需解压）：
+          - **Windows 安装版**: \`openPost-Windows-x64-Setup.exe\`
+          - **Windows 单文件免安装版**: \`openPost-Windows-x64-Portable.exe\`
+          - **macOS 原生镜像安装包**: \`openPost-macOS-Universal.dmg\`
+          - **Linux 原生安装包**: \`openPost-Linux-amd64.deb\`"
+          gh release upload "$REL_TAG" release-dist/* --clobber

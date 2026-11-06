@@ -271,7 +271,7 @@ jobs:
             bin_name: openPost
             label: macOS (openPost)
             artifact_name: openPost-macOS
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target_os: linux
             bin_name: openPost
             label: Linux x64 (openPost)

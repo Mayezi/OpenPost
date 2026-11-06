@@ -79,10 +79,21 @@ jobs:
           name: frontend-dist
           path: dist/
 
+      - name: Install Linux Native WebKitGTK & GTK3 Development Headers
+        if: matrix.target_os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev pkg-config build-essential
+
       - name: Setup Rust Stable Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Compile Standalone Rust Native Binary
+      - name: Cache Rust Cargo Crate Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-desktop
+
+      - name: Compile Standalone Rust Native Desktop Binary (tao + wry WebView)
         run: cargo build --release --manifest-path rust-desktop/Cargo.toml
 
       - name: Build Windows Native Setup.exe & Portable.exe (No Zip)
@@ -200,6 +211,7 @@ jobs:
           Section: devel
           Priority: optional
           Architecture: amd64
+          Depends: libwebkit2gtk-4.1-0, libgtk-3-0
           Maintainer: openPost Contributors
           Description: openPost 100% Local-First API Debugging Studio (Zero Login, Zero Telemetry)
           EOF
@@ -234,7 +246,7 @@ jobs:
           else
             REL_TAG="v2.0.0"
           fi
-          gh release view "$REL_TAG" >/dev/null 2>&1 || gh release create "$REL_TAG" --title "openPost $REL_TAG (Direct Native Installers)" --notes "直接点击下方对应的原生安装包即可下载安装（无需解压）：
+          gh release view "$REL_TAG" >/dev/null 2>&1 || gh release create "$REL_TAG" --title "openPost $REL_TAG (Native Desktop Installers)" --notes "直接点击下方对应的原生安装包即可下载安装（基于 tao + wry 原生桌面窗口架构，无需解压）：
           - **Windows 安装版**: \`openPost-Windows-x64-Setup.exe\`
           - **Windows 单文件免安装版**: \`openPost-Windows-x64-Portable.exe\`
           - **macOS 原生镜像安装包**: \`openPost-macOS-Universal.dmg\`

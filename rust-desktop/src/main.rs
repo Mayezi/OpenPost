@@ -3,11 +3,19 @@
 use std::env;
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use tao::{
+    dpi::LogicalSize,
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
+    window::WindowBuilder,
+};
+use wry::WebViewBuilder;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -16,6 +24,13 @@ use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 include!(concat!(env!("OUT_DIR"), "/embedded_assets.rs"));
+
+#[derive(Debug, Clone, Copy)]
+enum DesktopCommand {
+    Minimize,
+    ToggleMaximize,
+    Close,
+}
 
 fn json_escape(input: &str) -> String {
     let mut out = String::with_capacity(input.len() + 16);
@@ -104,7 +119,6 @@ fn extract_json_object_pairs(raw: &str, key: &str) -> Vec<(String, String)> {
         }
     }
     let obj_slice = &rest[..end_idx];
-    // Parse "k":"v" pairs inside obj_slice
     let mut cursor = obj_slice;
     while let Some(q1) = cursor.find('"') {
         let after_q1 = &cursor[q1 + 1..];
@@ -156,6 +170,21 @@ fn default_vault_dir() -> PathBuf {
     {
         if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
             return PathBuf::from(local_app_data).join("openPost_Vault");
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = env::var("HOME") {
+            return PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join("openPost_Vault");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(home) = env::var("HOME") {
+            return PathBuf::from(home).join(".config").join("openpost_vault");
         }
     }
     env::current_dir()
@@ -381,7 +410,11 @@ fn read_http_request(stream: &mut TcpStream) -> Option<(String, String, String)>
     Some((method, full_path, body_str))
 }
 
-fn handle_client(mut stream: TcpStream, port: u16) {
+fn handle_client(
+    mut stream: TcpStream,
+    port: u16,
+    proxy: Option<EventLoopProxy<DesktopCommand>>,
+) {
     let Some((method, full_path, body_str)) = read_http_request(&mut stream) else {
         return;
     };
@@ -392,12 +425,42 @@ fn handle_client(mut stream: TcpStream, port: u16) {
         return;
     }
 
+    if path_only == "/api/health" {
+        send_http_response(
+            &mut stream,
+            "200 OK",
+            "application/json",
+            br#"{"ok":true,"engine":"openPost-Rust-Native-WebView","version":"2.0.0"}"#,
+        );
+        return;
+    }
+
+    if path_only == "/api/window/minimize" {
+        if let Some(ref p) = proxy {
+            let _ = p.send_event(DesktopCommand::Minimize);
+        }
+        send_http_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#);
+        return;
+    }
+
+    if path_only == "/api/window/maximize" {
+        if let Some(ref p) = proxy {
+            let _ = p.send_event(DesktopCommand::ToggleMaximize);
+        }
+        send_http_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#);
+        return;
+    }
+
     if path_only == "/api/window/close" {
         send_http_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#);
-        thread::spawn(|| {
-            thread::sleep(Duration::from_millis(120));
-            std::process::exit(0);
-        });
+        if let Some(ref p) = proxy {
+            let _ = p.send_event(DesktopCommand::Close);
+        } else {
+            thread::spawn(|| {
+                thread::sleep(Duration::from_millis(100));
+                std::process::exit(0);
+            });
+        }
         return;
     }
 
@@ -492,91 +555,125 @@ fn handle_client(mut stream: TcpStream, port: u16) {
     );
 }
 
-#[cfg(target_os = "windows")]
-fn find_windows_chromium_exe() -> Option<PathBuf> {
-    let mut candidates = Vec::new();
-    for env_key in ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"] {
-        if let Ok(base) = env::var(env_key) {
-            let base_path = Path::new(&base);
-            candidates.push(base_path.join("Microsoft\\Edge\\Application\\msedge.exe"));
-            candidates.push(base_path.join("Google\\Chrome\\Application\\chrome.exe"));
+/// Binds the local engine on an available loopback port.
+/// Never fails because of Windows Hyper-V / WSL reserved port ranges: tries candidate ports
+/// and automatically falls back to `127.0.0.1:0` (OS-assigned ephemeral port).
+fn bind_local_engine() -> (TcpListener, u16) {
+    let mut candidate_ports = Vec::new();
+    if let Ok(custom_port) = env::var("PORT") {
+        if let Ok(p) = custom_port.parse::<u16>() {
+            candidate_ports.push(p);
         }
     }
-    candidates.into_iter().find(|p| p.exists())
+    candidate_ports.extend_from_slice(&[37890, 47890, 27890, 57890, 0]);
+
+    for port in candidate_ports {
+        let addr = format!("127.0.0.1:{}", port);
+        if let Ok(listener) = TcpListener::bind(&addr) {
+            let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
+            return (listener, actual_port);
+        }
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind 127.0.0.1:0 loopback");
+    let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(37890);
+    (listener, actual_port)
 }
 
-fn open_desktop_window(url: &str) {
-    if env::var("OPENPOST_NO_BROWSER").unwrap_or_default() == "1" {
-        return;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(browser_exe) = find_windows_chromium_exe() {
-            let mut cmd = Command::new(browser_exe);
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            cmd.arg(format!("--app={}", url))
-                .arg("--window-size=1440,900");
-            if cmd.spawn().is_ok() {
-                return;
-            }
+fn wait_until_server_ready(port: u16) {
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    for _ in 0..40 {
+        if TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok() {
+            return;
         }
-
-        // Fallback: open default system browser cleanly with separate arguments
-        let mut fallback = Command::new("cmd");
-        fallback.creation_flags(CREATE_NO_WINDOW);
-        let _ = fallback.args(["/C", "start", "", url]).spawn();
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let chrome_app = Path::new("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
-        let edge_app = Path::new("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge");
-        if chrome_app.exists() {
-            let _ = Command::new(chrome_app)
-                .arg(format!("--app={}", url))
-                .arg("--window-size=1440,900")
-                .spawn();
-        } else if edge_app.exists() {
-            let _ = Command::new(edge_app)
-                .arg(format!("--app={}", url))
-                .arg("--window-size=1440,900")
-                .spawn();
-        } else {
-            let _ = Command::new("open").arg(url).spawn();
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let _ = Command::new("xdg-open").arg(url).spawn();
+        thread::sleep(Duration::from_millis(25));
     }
 }
 
 fn main() {
-    let port: u16 = env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(17890);
+    let (listener, actual_port) = bind_local_engine();
+    let url = format!("http://127.0.0.1:{}", actual_port);
 
-    let addr = format!("127.0.0.1:{}", port);
-    match TcpListener::bind(&addr) {
-        Ok(listener) => {
-            let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
-            let url = format!("http://127.0.0.1:{}", actual_port);
-            open_desktop_window(&url);
-
-            for stream in listener.incoming().flatten() {
-                let p = actual_port;
-                thread::spawn(move || {
-                    handle_client(stream, p);
-                });
-            }
+    // Headless / CI verification mode
+    if env::var("OPENPOST_NO_BROWSER").unwrap_or_default() == "1" {
+        for stream in listener.incoming().flatten() {
+            let p = actual_port;
+            thread::spawn(move || {
+                handle_client(stream, p, None);
+            });
         }
-        Err(_) => {
-            // If port 17890 is already running openPost, open the window to it and exit
-            let existing_url = format!("http://127.0.0.1:{}", port);
-            open_desktop_window(&existing_url);
-        }
+        return;
     }
+
+    let event_loop = EventLoopBuilder::<DesktopCommand>::with_user_event().build();
+    let proxy = event_loop.create_proxy();
+
+    // Start in-process local HTTP & CORS-Free Proxy engine on a dedicated background thread
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let p = actual_port;
+            let proxy_clone = Some(proxy.clone());
+            thread::spawn(move || {
+                handle_client(stream, p, proxy_clone);
+            });
+        }
+    });
+
+    // Ensure background server thread is accepting connections before creating the WebView
+    wait_until_server_ready(actual_port);
+
+    let window = WindowBuilder::new()
+        .with_title("openPost — 100% Local-First API Debugging Studio")
+        .with_inner_size(LogicalSize::new(1440.0, 900.0))
+        .with_min_inner_size(LogicalSize::new(1024.0, 680.0))
+        .build(&event_loop)
+        .expect("Failed to create native desktop window");
+
+    let builder = WebViewBuilder::new().with_url(&url);
+
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    ))]
+    let _webview = builder.build(&window);
+
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    )))]
+    let _webview = {
+        use tao::platform::unix::WindowExtUnix;
+        use wry::WebViewBuilderExtUnix;
+        let vbox = window.default_vbox().expect("Failed to get GTK default vbox");
+        builder.build_gtk(vbox)
+    };
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                *control_flow = ControlFlow::Exit;
+            }
+            Event::UserEvent(cmd) => match cmd {
+                DesktopCommand::Minimize => {
+                    window.set_minimized(true);
+                }
+                DesktopCommand::ToggleMaximize => {
+                    window.set_maximized(!window.is_maximized());
+                }
+                DesktopCommand::Close => {
+                    *control_flow = ControlFlow::Exit;
+                }
+            },
+            _ => (),
+        }
+    });
 }

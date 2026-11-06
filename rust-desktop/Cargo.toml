@@ -2,7 +2,7 @@
 name = "openPost"
 version = "2.0.0"
 edition = "2021"
-description = "openPost 100% Local-First Native Rust Desktop Runtime (Zero External Crate Dependencies)"
+description = "openPost 100% Local-First Native Rust Desktop Runtime (tao + wry Native OS WebView)"
 license = "Apache-2.0"
 
 [[bin]]
@@ -16,3 +16,5 @@ codegen-units = 1
 strip = true
 
 [dependencies]
+tao = "=0.32.8"
+wry = "=0.50.4"

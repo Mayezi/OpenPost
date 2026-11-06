@@ -21,6 +21,17 @@ use wry::WebViewBuilder;
 use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "windows")]
+#[link(name = "advapi32")]
+#[link(name = "user32")]
+#[link(name = "shell32")]
+#[link(name = "ole32")]
+#[link(name = "oleaut32")]
+#[link(name = "shlwapi")]
+#[link(name = "version")]
+#[link(name = "gdi32")]
+extern "system" {}
+
+#[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 include!(concat!(env!("OUT_DIR"), "/embedded_assets.rs"));

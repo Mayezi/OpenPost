@@ -42,6 +42,21 @@ fn guess_mime(path: &str) -> &'static str {
 }
 
 fn main() {
+    if env::var("CARGO_CFG_TARGET_OS").unwrap_or_default() == "windows" {
+        for lib in [
+            "advapi32",
+            "user32",
+            "shell32",
+            "ole32",
+            "oleaut32",
+            "shlwapi",
+            "version",
+            "gdi32",
+        ] {
+            println!("cargo:rustc-link-lib={}", lib);
+        }
+    }
+
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let dist_dir = Path::new(&manifest_dir).join("../dist");
     println!("cargo:rerun-if-changed=../dist");

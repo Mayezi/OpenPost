@@ -13,6 +13,8 @@ import {
   Table2,
   FileCode2,
   ListFilter,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { ApiResponseData } from '../types/api';
 import { getByJsonPath } from '../utils/requestEngine';
@@ -21,12 +23,16 @@ interface ResponseViewerProps {
   response: ApiResponseData | null;
   loading: boolean;
   onQuickSaveEnvVar?: (key: string, value: string) => void;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
 }
 
 export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   response,
   loading,
   onQuickSaveEnvVar,
+  isExpanded = false,
+  onToggleExpand,
 }) => {
   const [activeTab, setActiveTab] = useState<
     'pretty' | 'table' | 'raw' | 'headers' | 'cookies' | 'tests'
@@ -224,6 +230,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
     <div className="flex-1 flex flex-col h-full min-h-0 zp-surface-transition">
       {/* Response Status & Telemetry Strip */}
       <div
+        onDoubleClick={() => onToggleExpand?.()}
         className="flex flex-wrap items-center justify-between gap-3 px-4 py-1.5 border-b text-xs zp-surface-transition"
         style={{
           borderColor: 'var(--zp-border)',
@@ -263,7 +270,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
         </div>
 
         {/* Right: Clean Unboxed Metadata with Typographic Separators + Copy/Download */}
-        <div className="flex items-center gap-2.5 font-mono-tabular text-xs shrink-0">
+        <div className="flex items-center gap-2 text-xs shrink-0">
           <span className={`inline-flex items-center gap-1 font-semibold ${statusColorClass}`}>
             {isSuccessStatus ? (
               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -332,6 +339,26 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
             <Download className="w-3.5 h-3.5" />
             <span>保存</span>
           </button>
+          {onToggleExpand && (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border transition-colors whitespace-nowrap shrink-0 hover:opacity-85"
+              style={{
+                borderColor: 'var(--zp-border)',
+                backgroundColor: isExpanded ? 'var(--zp-accent-soft)' : 'var(--zp-bg-canvas)',
+                color: isExpanded ? 'var(--zp-accent)' : 'var(--zp-text-secondary)',
+              }}
+              title={isExpanded ? '还原分屏比例 (双击顶部栏也可切换)' : '放大响应面板 (双击顶部栏也可切换)'}
+            >
+              {isExpanded ? (
+                <Minimize2 className="w-3.5 h-3.5" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5" />
+              )}
+              <span>{isExpanded ? '还原' : '展开'}</span>
+            </button>
+          )}
         </div>
       </div>
 

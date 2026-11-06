@@ -65,7 +65,6 @@ import { KeyValueTable } from './components/KeyValueTable';
 import { ResponseViewer } from './components/ResponseViewer';
 import { CustomSelect } from './components/CustomSelect';
 import {
-  CollectionRunnerModal,
   EnvironmentModal,
   ImportExportModal,
   SettingsCenterModal,
@@ -211,12 +210,12 @@ export default function App() {
   const [responsesById, setResponsesById] = useState<Record<string, ApiResponseData>>({});
   const [loadingReqId, setLoadingReqId] = useState<string | null>(null);
 
-  // Modals State
+  // Modals & Response Layout State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTabId>('themes');
   const [isEnvModalOpen, setIsEnvModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [isRunnerModalOpen, setIsRunnerModalOpen] = useState(false);
+  const [responseExpanded, setResponseExpanded] = useState(false);
 
   const openSettingsAt = (tab: SettingsTabId) => {
     setSettingsInitialTab(tab);
@@ -939,21 +938,7 @@ export default function App() {
             </span>
           </button>
 
-          {/* Primary New Request Button on Left */}
-          <button
-            type="button"
-            onClick={() => handleCreateNewRequest()}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg transition-all hover:opacity-95 active:scale-[0.98] whitespace-nowrap shrink-0"
-            style={{
-              backgroundColor: 'var(--zp-accent)',
-              color: 'var(--zp-accent-fg)',
-            }}
-          >
-            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>新建请求</span>
-          </button>
-
-          {/* Clean Icon + Label Action Buttons */}
+          {/* Clean Import / Backup Action Button */}
           <button
             type="button"
             onClick={() => setIsImportModalOpen(true)}
@@ -961,17 +946,7 @@ export default function App() {
             style={{ color: 'var(--zp-text-secondary)' }}
           >
             <FolderSync className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
-            <span>导入</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsRunnerModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
-            style={{ color: 'var(--zp-text-secondary)' }}
-          >
-            <Play className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
-            <span>批量运行</span>
+            <span>导入 / 备份</span>
           </button>
         </div>
 
@@ -1261,7 +1236,7 @@ export default function App() {
               onClick={() => openSettingsAt('themes')}
               className="w-7 h-7 rounded-lg inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
               style={{ color: 'var(--zp-text-secondary)' }}
-              title="偏好设置 (字号缩放 / 自定义数据目录 / 代理引擎 / 多端构建)"
+              title="偏好设置 (外观与字号 / 本地数据目录 / 网络与执行引擎)"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
@@ -1378,13 +1353,13 @@ export default function App() {
                 })}
               </div>
 
-              {/* Search & Quick Left Creation Actions */}
+              {/* Search & Compact Folder Creation Row */}
               <div
-                className="p-2.5 border-b space-y-2"
+                className="p-2.5 border-b flex items-center gap-1.5"
                 style={{ borderColor: 'var(--zp-border-subtle)' }}
               >
                 <div
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs zp-surface-transition"
+                  className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs zp-surface-transition min-w-0"
                   style={{
                     backgroundColor: 'var(--zp-bg-input)',
                     borderColor: 'var(--zp-border)',
@@ -1414,34 +1389,20 @@ export default function App() {
                 </div>
 
                 {sidebarMode === 'collections' && (
-                  <div className="grid grid-cols-2 gap-1.5 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => handleCreateNewRequest()}
-                      className="inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg border font-medium zp-surface-transition hover:opacity-90 whitespace-nowrap shrink-0"
-                      style={{
-                        borderColor: 'var(--zp-border)',
-                        backgroundColor: 'var(--zp-accent-soft)',
-                        color: 'var(--zp-accent)',
-                      }}
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>新建请求</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCreateFolder}
-                      className="inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg border font-medium zp-surface-transition hover:opacity-85 whitespace-nowrap shrink-0"
-                      style={{
-                        borderColor: 'var(--zp-border)',
-                        backgroundColor: 'var(--zp-bg-canvas)',
-                        color: 'var(--zp-text-secondary)',
-                      }}
-                    >
-                      <FolderPlus className="w-3.5 h-3.5" />
-                      <span>新建目录</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCreateFolder}
+                    className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium zp-surface-transition hover:opacity-85 whitespace-nowrap shrink-0"
+                    style={{
+                      borderColor: 'var(--zp-border)',
+                      backgroundColor: 'var(--zp-bg-canvas)',
+                      color: 'var(--zp-text-secondary)',
+                    }}
+                    title="新建接口集合目录"
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
+                    <span>新建目录</span>
+                  </button>
                 )}
               </div>
 
@@ -2212,16 +2173,23 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <span
-                      className="hidden lg:inline font-mono-tabular text-xs truncate max-w-md"
-                      style={{ color: 'var(--zp-text-muted)' }}
-                      title={`实际解析目标 URL: ${resolvedPreviewUrl}`}
-                    >
-                      解析预览:{' '}
-                      <span style={{ color: 'var(--zp-text-secondary)' }}>
-                        {resolvedPreviewUrl}
-                      </span>
-                    </span>
+                    {resolvedPreviewUrl &&
+                      resolvedPreviewUrl !== activeRequest.url.trim() && (
+                        <span
+                          className="hidden lg:inline text-xs truncate max-w-md px-2 py-0.5 rounded border"
+                          style={{
+                            color: 'var(--zp-text-muted)',
+                            borderColor: 'var(--zp-border-subtle)',
+                            backgroundColor: 'var(--zp-bg-surface)',
+                          }}
+                          title={`实际解析目标 URL: ${resolvedPreviewUrl}`}
+                        >
+                          解析地址:{' '}
+                          <span style={{ color: 'var(--zp-text-secondary)' }}>
+                            {resolvedPreviewUrl}
+                          </span>
+                        </span>
+                      )}
                     <button
                       type="button"
                       onClick={handleSaveRequest}
@@ -2238,7 +2206,7 @@ export default function App() {
                       ) : (
                         <Save className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
                       )}
-                      <span>{savedRequestNotice || '保存 (Ctrl+S)'}</span>
+                      <span>{savedRequestNotice || '保存'}</span>
                     </button>
                     <button
                       type="button"
@@ -2277,7 +2245,25 @@ export default function App() {
                   >
                     <CustomSelect
                       value={activeRequest.method}
-                      onChange={(m) => updateActiveRequest({ method: m as HttpMethod })}
+                      onChange={(m) => {
+                        const nextMethod = m as HttpMethod;
+                        const needsBody =
+                          nextMethod === 'POST' ||
+                          nextMethod === 'PUT' ||
+                          nextMethod === 'PATCH';
+                        if (needsBody && activeRequest.body.type === 'none') {
+                          updateActiveRequest({
+                            method: nextMethod,
+                            body: {
+                              ...activeRequest.body,
+                              type: 'json',
+                            },
+                          });
+                          setReqSubTab('body');
+                        } else {
+                          updateActiveRequest({ method: nextMethod });
+                        }
+                      }}
                       variant="method"
                       minWidth={135}
                       options={HTTP_METHODS.map((m) => ({
@@ -2292,8 +2278,14 @@ export default function App() {
                       type="text"
                       value={activeRequest.url}
                       onChange={(e) => updateActiveRequest({ url: e.target.value })}
-                      placeholder="输入接口地址，如 https://api.example.com/v1/users 或 {{baseUrl}}/users"
-                      className="flex-1 px-3.5 py-2 font-mono-tabular text-xs bg-transparent focus:outline-none"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSendRequest();
+                        }
+                      }}
+                      placeholder="输入接口地址（按 Enter 直接发送），如 https://api.example.com/v1/users 或 {{baseUrl}}/users"
+                      className="flex-1 px-3.5 py-2 text-xs bg-transparent focus:outline-none"
                       style={{ color: 'var(--zp-text-primary)' }}
                     />
                   </div>
@@ -2310,19 +2302,21 @@ export default function App() {
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>
-                      {loadingReqId === activeRequest.id ? '请求中...' : '发送请求 (⌘↵)'}
+                      {loadingReqId === activeRequest.id ? '请求中...' : '发送请求'}
                     </span>
                   </button>
                 </div>
               </div>
 
               {/* ================================================================
-                  SPLIT PANE: TOP = REQUEST CONFIG (6/12), BOTTOM = RESPONSE (6/12)
+                  SPLIT PANE: TOP = REQUEST CONFIG, BOTTOM = RESPONSE
                  ================================================================ */}
               <div className="flex-1 grid grid-rows-12 min-h-0">
                 {/* TOP PANE: Request Builder */}
                 <div
-                  className="row-span-6 flex flex-col border-b min-h-0 zp-surface-transition"
+                  className={`${
+                    responseExpanded ? 'row-span-3' : 'row-span-6'
+                  } flex flex-col border-b min-h-0 zp-surface-transition`}
                   style={{ borderColor: 'var(--zp-border)' }}
                 >
                   {/* Request Builder Sub-Tabs with Unified Rounded-lg Sliding Pill + Icons */}
@@ -2886,167 +2880,276 @@ export default function App() {
                         {reqSubTab === 'tests' && (
                           <div className="flex-1 flex flex-col min-h-0">
                             <div
-                              className="flex items-center justify-between px-4 py-2 border-b text-xs shrink-0"
+                              className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b text-xs shrink-0"
                               style={{ borderColor: 'var(--zp-border-subtle)' }}
                             >
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const nextRule: AssertionRule = {
-                                    id: `as_${Date.now()}`,
-                                    enabled: true,
-                                    type: 'status_eq',
-                                    target: 'status',
-                                    expected: '200',
-                                  };
-                                  updateActiveRequest({
-                                    assertions: [...activeRequest.assertions, nextRule],
-                                  });
-                                }}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium whitespace-nowrap shrink-0"
-                                style={{
-                                  backgroundColor: 'var(--zp-accent-soft)',
-                                  color: 'var(--zp-accent)',
-                                }}
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>新增断言或变量提取规则</span>
-                              </button>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextRule: AssertionRule = {
+                                      id: `as_${Date.now()}`,
+                                      enabled: true,
+                                      type: 'status_eq',
+                                      target: 'status',
+                                      expected: '200',
+                                    };
+                                    updateActiveRequest({
+                                      assertions: [...activeRequest.assertions, nextRule],
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-medium whitespace-nowrap shrink-0"
+                                  style={{
+                                    backgroundColor: 'var(--zp-accent-soft)',
+                                    color: 'var(--zp-accent)',
+                                  }}
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>状态码 = 200</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextRule: AssertionRule = {
+                                      id: `as_${Date.now()}`,
+                                      enabled: true,
+                                      type: 'time_lt',
+                                      target: 'time',
+                                      expected: '500',
+                                    };
+                                    updateActiveRequest({
+                                      assertions: [...activeRequest.assertions, nextRule],
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-medium whitespace-nowrap shrink-0 hover:opacity-85"
+                                  style={{
+                                    borderColor: 'var(--zp-border)',
+                                    backgroundColor: 'var(--zp-bg-surface)',
+                                    color: 'var(--zp-text-secondary)',
+                                  }}
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>耗时 &lt; 500ms</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextRule: AssertionRule = {
+                                      id: `as_${Date.now()}`,
+                                      enabled: true,
+                                      type: 'json_path_exists',
+                                      target: 'data',
+                                      expected: '',
+                                    };
+                                    updateActiveRequest({
+                                      assertions: [...activeRequest.assertions, nextRule],
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-medium whitespace-nowrap shrink-0 hover:opacity-85"
+                                  style={{
+                                    borderColor: 'var(--zp-border)',
+                                    backgroundColor: 'var(--zp-bg-surface)',
+                                    color: 'var(--zp-text-secondary)',
+                                  }}
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>JSON 字段非空</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextRule: AssertionRule = {
+                                      id: `as_${Date.now()}`,
+                                      enabled: true,
+                                      type: 'extract_env',
+                                      target: 'data.token',
+                                      expected: 'authToken',
+                                    };
+                                    updateActiveRequest({
+                                      assertions: [...activeRequest.assertions, nextRule],
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-medium whitespace-nowrap shrink-0 hover:opacity-85"
+                                  style={{
+                                    borderColor: 'var(--zp-border)',
+                                    backgroundColor: 'var(--zp-bg-surface)',
+                                    color: 'var(--zp-text-secondary)',
+                                  }}
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>提取字段至环境变量</span>
+                                </button>
+                              </div>
                               <span style={{ color: 'var(--zp-text-muted)' }}>
-                                请求返回后自动执行校验，支持将响应 JSON 字段自动写入环境变量
+                                发送请求后自动执行校验并在当前行展示结果
                               </span>
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-3.5 space-y-2 text-xs">
-                              {activeRequest.assertions.map((rule) => (
+                              {activeRequest.assertions.length === 0 ? (
                                 <div
-                                  key={rule.id}
-                                  className="flex flex-wrap items-center gap-2 p-2.5 rounded-xl border"
+                                  className="p-6 text-center rounded-xl border border-dashed"
                                   style={{
-                                    backgroundColor: 'var(--zp-bg-surface)',
                                     borderColor: 'var(--zp-border)',
+                                    color: 'var(--zp-text-muted)',
                                   }}
                                 >
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      updateActiveRequest({
-                                        assertions: activeRequest.assertions.map((a) =>
-                                          a.id === rule.id ? { ...a, enabled: !a.enabled } : a
-                                        ),
-                                      })
-                                    }
-                                    style={{
-                                      color: rule.enabled
-                                        ? 'var(--zp-accent)'
-                                        : 'var(--zp-text-muted)',
-                                    }}
-                                  >
-                                    {rule.enabled ? (
-                                      <CheckSquare className="w-4 h-4" />
-                                    ) : (
-                                      <Square className="w-4 h-4" />
-                                    )}
-                                  </button>
-
-                                  <CustomSelect
-                                    value={rule.type}
-                                    onChange={(val) =>
-                                      updateActiveRequest({
-                                        assertions: activeRequest.assertions.map((a) =>
-                                          a.id === rule.id
-                                            ? { ...a, type: val as AssertionType }
-                                            : a
-                                        ),
-                                      })
-                                    }
-                                    minWidth={210}
-                                    options={[
-                                      { value: 'status_eq', label: 'HTTP 状态码等于' },
-                                      { value: 'time_lt', label: '响应耗时小于 (ms)' },
-                                      { value: 'json_path_eq', label: 'JSONPath 字段值等于' },
-                                      { value: 'json_path_exists', label: 'JSONPath 字段存在' },
-                                      { value: 'header_contains', label: '响应头包含' },
-                                      {
-                                        value: 'extract_env',
-                                        label: '提取 JSONPath 存入环境变量',
-                                      },
-                                    ]}
-                                  />
-
-                                  {(rule.type === 'json_path_eq' ||
-                                    rule.type === 'json_path_exists' ||
-                                    rule.type === 'header_contains' ||
-                                    rule.type === 'extract_env') && (
-                                    <input
-                                      type="text"
-                                      value={rule.target}
-                                      onChange={(e) =>
-                                        updateActiveRequest({
-                                          assertions: activeRequest.assertions.map((a) =>
-                                            a.id === rule.id
-                                              ? { ...a, target: e.target.value }
-                                              : a
-                                          ),
-                                        })
-                                      }
-                                      placeholder={
-                                        rule.type === 'header_contains'
-                                          ? '响应头名称 (如 content-type)'
-                                          : 'JSON 路径 (如 data.0.id 或 access_token)'
-                                      }
-                                      className="flex-1 min-w-[160px] px-3 py-1.5 rounded-lg border font-mono-tabular text-xs focus:outline-none"
-                                      style={{
-                                        backgroundColor: 'var(--zp-bg-input)',
-                                        borderColor: 'var(--zp-border)',
-                                        color: 'var(--zp-text-primary)',
-                                      }}
-                                    />
-                                  )}
-
-                                  {rule.type !== 'json_path_exists' && (
-                                    <input
-                                      type="text"
-                                      value={rule.expected}
-                                      onChange={(e) =>
-                                        updateActiveRequest({
-                                          assertions: activeRequest.assertions.map((a) =>
-                                            a.id === rule.id
-                                              ? { ...a, expected: e.target.value }
-                                              : a
-                                          ),
-                                        })
-                                      }
-                                      placeholder={
-                                        rule.type === 'extract_env'
-                                          ? '目标变量名 (如 auth_token)'
-                                          : '期望值 (如 200)'
-                                      }
-                                      className="flex-1 min-w-[140px] px-3 py-1.5 rounded-lg border font-mono-tabular text-xs focus:outline-none"
-                                      style={{
-                                        backgroundColor: 'var(--zp-bg-input)',
-                                        borderColor: 'var(--zp-border)',
-                                        color: 'var(--zp-accent)',
-                                      }}
-                                    />
-                                  )}
-
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      updateActiveRequest({
-                                        assertions: activeRequest.assertions.filter(
-                                          (a) => a.id !== rule.id
-                                        ),
-                                      })
-                                    }
-                                    className="p-1 hover:text-rose-500"
-                                    style={{ color: 'var(--zp-text-muted)' }}
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
+                                  暂无断言或变量提取规则，点击上方快捷按钮一键添加。
                                 </div>
-                              ))}
+                              ) : (
+                                activeRequest.assertions.map((rule) => {
+                                  const liveResult = activeResponse?.assertionResults.find(
+                                    (r) => r.id === rule.id
+                                  );
+                                  return (
+                                    <div
+                                      key={rule.id}
+                                      className="flex flex-wrap items-center gap-2 p-2.5 rounded-xl border"
+                                      style={{
+                                        backgroundColor: 'var(--zp-bg-surface)',
+                                        borderColor: 'var(--zp-border)',
+                                      }}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          updateActiveRequest({
+                                            assertions: activeRequest.assertions.map((a) =>
+                                              a.id === rule.id ? { ...a, enabled: !a.enabled } : a
+                                            ),
+                                          })
+                                        }
+                                        style={{
+                                          color: rule.enabled
+                                            ? 'var(--zp-accent)'
+                                            : 'var(--zp-text-muted)',
+                                        }}
+                                      >
+                                        {rule.enabled ? (
+                                          <CheckSquare className="w-4 h-4" />
+                                        ) : (
+                                          <Square className="w-4 h-4" />
+                                        )}
+                                      </button>
+
+                                      <CustomSelect
+                                        value={rule.type}
+                                        onChange={(val) =>
+                                          updateActiveRequest({
+                                            assertions: activeRequest.assertions.map((a) =>
+                                              a.id === rule.id
+                                                ? { ...a, type: val as AssertionType }
+                                                : a
+                                            ),
+                                          })
+                                        }
+                                        minWidth={210}
+                                        options={[
+                                          { value: 'status_eq', label: 'HTTP 状态码等于' },
+                                          { value: 'time_lt', label: '响应耗时小于 (ms)' },
+                                          { value: 'json_path_eq', label: 'JSONPath 字段值等于' },
+                                          { value: 'json_path_exists', label: 'JSONPath 字段存在' },
+                                          { value: 'header_contains', label: '响应头包含' },
+                                          {
+                                            value: 'extract_env',
+                                            label: '提取 JSONPath 存入环境变量',
+                                          },
+                                        ]}
+                                      />
+
+                                      {(rule.type === 'json_path_eq' ||
+                                        rule.type === 'json_path_exists' ||
+                                        rule.type === 'header_contains' ||
+                                        rule.type === 'extract_env') && (
+                                        <input
+                                          type="text"
+                                          value={rule.target}
+                                          onChange={(e) =>
+                                            updateActiveRequest({
+                                              assertions: activeRequest.assertions.map((a) =>
+                                                a.id === rule.id
+                                                  ? { ...a, target: e.target.value }
+                                                  : a
+                                              ),
+                                            })
+                                          }
+                                          placeholder={
+                                            rule.type === 'header_contains'
+                                              ? '响应头名称 (如 content-type)'
+                                              : 'JSON 路径 (如 data.0.id 或 access_token)'
+                                          }
+                                          className="flex-1 min-w-[160px] px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                                          style={{
+                                            backgroundColor: 'var(--zp-bg-input)',
+                                            borderColor: 'var(--zp-border)',
+                                            color: 'var(--zp-text-primary)',
+                                          }}
+                                        />
+                                      )}
+
+                                      {rule.type !== 'json_path_exists' && (
+                                        <input
+                                          type="text"
+                                          value={rule.expected}
+                                          onChange={(e) =>
+                                            updateActiveRequest({
+                                              assertions: activeRequest.assertions.map((a) =>
+                                                a.id === rule.id
+                                                  ? { ...a, expected: e.target.value }
+                                                  : a
+                                              ),
+                                            })
+                                          }
+                                          placeholder={
+                                            rule.type === 'extract_env'
+                                              ? '目标变量名 (如 auth_token)'
+                                              : '期望值 (如 200)'
+                                          }
+                                          className="flex-1 min-w-[140px] px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                                          style={{
+                                            backgroundColor: 'var(--zp-bg-input)',
+                                            borderColor: 'var(--zp-border)',
+                                            color: 'var(--zp-accent)',
+                                          }}
+                                        />
+                                      )}
+
+                                      {liveResult && (
+                                        <span
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium ${
+                                            liveResult.passed
+                                              ? 'bg-emerald-500/10 text-emerald-500'
+                                              : 'bg-rose-500/10 text-rose-500'
+                                          }`}
+                                          title={liveResult.label}
+                                        >
+                                          <span>{liveResult.passed ? '通过' : '失败'}</span>
+                                          {liveResult.actual && (
+                                            <span className="opacity-80 max-w-[140px] truncate">
+                                              ({liveResult.actual})
+                                            </span>
+                                          )}
+                                        </span>
+                                      )}
+
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          updateActiveRequest({
+                                            assertions: activeRequest.assertions.filter(
+                                              (a) => a.id !== rule.id
+                                            ),
+                                          })
+                                        }
+                                        className="p-1 hover:text-rose-500"
+                                        style={{ color: 'var(--zp-text-muted)' }}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  );
+                                })
+                              )}
                             </div>
                           </div>
                         )}
@@ -3137,11 +3240,17 @@ export default function App() {
                 </div>
 
                 {/* BOTTOM PANE: Response Inspector */}
-                <div className="row-span-6 flex flex-col min-h-0">
+                <div
+                  className={`${
+                    responseExpanded ? 'row-span-9' : 'row-span-6'
+                  } flex flex-col min-h-0 zp-surface-transition`}
+                >
                   <ResponseViewer
                     response={activeResponse}
                     loading={loadingReqId === activeRequest.id}
                     onQuickSaveEnvVar={handleQuickSaveEnvVar}
+                    isExpanded={responseExpanded}
+                    onToggleExpand={() => setResponseExpanded((v) => !v)}
                   />
                 </div>
               </div>
@@ -3247,15 +3356,6 @@ export default function App() {
             setActiveRequestId(newRequests[0].id);
           }
         }}
-      />
-
-      <CollectionRunnerModal
-        isOpen={isRunnerModalOpen}
-        onClose={() => setIsRunnerModalOpen(false)}
-        folders={folders}
-        requests={requests}
-        activeEnv={activeEnv}
-        engine={engineMode}
       />
     </div>
   );

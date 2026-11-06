@@ -3,14 +3,14 @@
 
 @layer base {
   :root {
-    --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
     /* Dynamic UI Font Scale (Default 14px UI base -> 16px root rem) */
     --zp-root-font-size: 16px;
     --zp-ui-font-size: 14px;
-    --zp-code-font-size: 13.5px;
+    --zp-code-font-size: 13px;
 
     /* Default: Claude Code (Anthropic Warm Dark) */
     --zp-bg-canvas: #141413;
@@ -58,13 +58,12 @@
 }
 
 .font-display {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
 }
 
 .font-mono-tabular {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
-  font-size: var(--zp-code-font-size);
 }
 
 .zp-ui-text {

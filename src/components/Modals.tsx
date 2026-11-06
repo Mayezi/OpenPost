@@ -7,15 +7,10 @@ import {
   Terminal,
   Upload,
   Download,
-  ShieldCheck,
-  Laptop,
-  Play,
   CheckCircle2,
-  XCircle,
   Plus,
   Trash2,
   FolderSync,
-  Copy,
   HardDrive,
   Sliders,
   FolderOpen,
@@ -35,13 +30,11 @@ import {
 import { KeyValueTable } from './KeyValueTable';
 import { CustomSelect } from './CustomSelect';
 import {
-  executeApiRequest,
   exportWorkspaceBundle,
   parseCurlCommand,
 } from '../utils/requestEngine';
-import { METHOD_COLORS } from '../data/themesAndDefaults';
 
-export type SettingsTabId = 'themes' | 'storage' | 'network' | 'desktop';
+export type SettingsTabId = 'themes' | 'storage' | 'network';
 
 /* ==========================================================================
    1. UNIFIED MODERN SETTINGS & PREFERENCES CENTER MODAL
@@ -143,10 +136,6 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
       }),
     }).catch(() => {});
   };
-
-  // Desktop & GitHub CI packaging state
-  const [selectedOs, setSelectedOs] = useState<'github' | 'win' | 'mac' | 'linux'>('github');
-  const [copiedScript, setCopiedScript] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -261,105 +250,6 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
     themeModeFilter === 'all' ? true : t.mode === themeModeFilter
   );
 
-  const osConfigs = {
-    github: {
-      title: 'GitHub Actions Rust 原生单文件跨平台打包矩阵 (Win / macOS / Linux)',
-      targets: 'Rust Stable (0 外部依赖单文件二进制) · Node 22 · 极简 5 项核心依赖',
-      scriptName: 'release.yml',
-      code: `name: openPost Rust Desktop Release (Win / macOS / Linux)
-
-on:
-  push:
-    branches: [main, master]
-    tags: ['v*']
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-env:
-  OPENPOST_OFFLINE_ONLY: '1'
-  NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
-
-jobs:
-  build-and-package:
-    name: Build \${{ matrix.label }}
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target_os: windows
-            bin_name: openPost.exe
-            label: Windows x64 (openPost.exe)
-            artifact_name: openPost-Windows-x64
-          - os: macos-latest
-            target_os: macos
-            bin_name: openPost
-            label: macOS (openPost)
-            artifact_name: openPost-macOS
-          - os: ubuntu-24.04
-            target_os: linux
-            bin_name: openPost
-            label: Linux x64 (openPost)
-            artifact_name: openPost-Linux-x64
-    runs-on: \${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - uses: dtolnay/rust-toolchain@stable
-      - run: npm install --no-audit --no-fund
-      - run: npm run lint && npm run build
-      - name: Compile Standalone Rust Native Binary (\${{ matrix.bin_name }})
-        run: cargo build --release --manifest-path rust-desktop/Cargo.toml`,
-    },
-    win: {
-      title: 'Windows 10 / 11 (Rust 原生单文件 openPost.exe)',
-      targets: 'rust-desktop/target/release/openPost.exe (内嵌全部前端静态资源)',
-      scriptName: 'build-windows-rust.bat',
-      code: `@echo off
-:: openPost Rust Native Single-Binary Windows Build Script
-set NPM_CONFIG_LEGACY_PEER_DEPS=true
-echo [1/2] Installing & Building Frontend Assets...
-call npm install --legacy-peer-deps --no-audit --no-fund
-call npm run build
-
-echo [2/2] Compiling Standalone Rust Native Executable (openPost.exe)...
-cargo build --release --manifest-path rust-desktop/Cargo.toml
-echo Done! Single-file binary: rust-desktop\\target\\release\\openPost.exe`,
-    },
-    mac: {
-      title: 'macOS (Rust 原生单文件可执行程序 openPost)',
-      targets: 'rust-desktop/target/release/openPost (Apple Silicon & Intel)',
-      scriptName: 'build-macos-rust.sh',
-      code: `#!/usr/bin/env bash
-# openPost Rust Native Single-Binary macOS Build Script
-set -e
-npm install --legacy-peer-deps --no-audit --no-fund
-npm run build
-cargo build --release --manifest-path rust-desktop/Cargo.toml
-echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
-    },
-    linux: {
-      title: 'Linux (Rust 原生单文件可执行程序 openPost)',
-      targets: 'rust-desktop/target/release/openPost (零系统库依赖 ELF)',
-      scriptName: 'build-linux-rust.sh',
-      code: `#!/usr/bin/env bash
-# openPost Rust Native Single-Binary Linux Build Script
-set -e
-npm install --legacy-peer-deps --no-audit --no-fund
-npm run build
-cargo build --release --manifest-path rust-desktop/Cargo.toml
-echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
-    },
-  };
-
-  const activeOs = osConfigs[selectedOs];
-
   const navItems: Array<{ id: SettingsTabId; label: string; sub: string; icon: React.ReactNode }> = [
     {
       id: 'themes',
@@ -378,12 +268,6 @@ echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
       label: '代理与引擎',
       sub: '无跨域与超时策略',
       icon: <Sliders className="w-4 h-4" />,
-    },
-    {
-      id: 'desktop',
-      label: 'GitHub 打包与多端',
-      sub: 'Win / Mac / Linux CI',
-      icon: <ShieldCheck className="w-4 h-4" />,
     },
   ];
 
@@ -424,7 +308,7 @@ echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
                   偏好设置与系统工作台 (Preferences)
                 </h2>
                 <p className="text-xs mt-0.5" style={{ color: 'var(--zp-text-muted)' }}>
-                  管理 AI 视觉主题、自定义非系统盘数据存储目录、网络引擎及跨平台离线安装包
+                  管理 AI 视觉主题、自定义非系统盘数据存储目录与本地网络引擎
                 </p>
               </div>
               <button
@@ -1026,182 +910,6 @@ echo "Done! Single-file binary: rust-desktop/target/release/openPost"`,
                           >
                             {verifySsl ? '已开启校验' : '已忽略自签名证书'}
                           </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {/* TAB 4: MULTI-PLATFORM PACKAGING & SECURITY AUDIT */}
-                  {activeTab === 'desktop' && (
-                    <motion.div
-                      key="tab-desktop"
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -4 }}
-                      transition={{ duration: 0.16 }}
-                      className="space-y-5 text-xs"
-                    >
-                      <div
-                        className="rounded-xl border overflow-hidden"
-                        style={{ borderColor: 'var(--zp-border)' }}
-                      >
-                        <div
-                          className="px-4 py-2.5 border-b font-semibold flex items-center justify-between"
-                          style={{
-                            backgroundColor: 'var(--zp-bg-surface)',
-                            borderColor: 'var(--zp-border)',
-                          }}
-                        >
-                          <span>零信任隐私架构对比 (openPost vs 传统云端 API 客户端)</span>
-                          <span className="text-emerald-500 font-mono-tabular">
-                            审计状态: 100% 纯净本地
-                          </span>
-                        </div>
-                        <table className="w-full border-collapse text-left">
-                          <tbody>
-                            <tr className="border-b" style={{ borderColor: 'var(--zp-border-subtle)' }}>
-                              <td className="py-2 px-4 font-medium">强制账号登录与云同步</td>
-                              <td className="py-2 px-4 border-l text-rose-500" style={{ borderColor: 'var(--zp-border-subtle)' }}>
-                                强制登录，私有接口与密钥自动上传云端
-                              </td>
-                              <td className="py-2 px-4 border-l text-emerald-500 font-medium" style={{ borderColor: 'var(--zp-border-subtle)' }}>
-                                免登录即开即用，0 云端账户模块
-                              </td>
-                            </tr>
-                            <tr className="border-b" style={{ borderColor: 'var(--zp-border-subtle)' }}>
-                              <td className="py-2 px-4 font-medium">后台静默修改与默认盘占用</td>
-                              <td className="py-2 px-4 border-l text-rose-500" style={{ borderColor: 'var(--zp-border-subtle)' }}>
-                                注册开机服务、静默修改系统、强占 C 盘空间
-                              </td>
-                              <td className="py-2 px-4 border-l text-emerald-500 font-medium" style={{ borderColor: 'var(--zp-border-subtle)' }}>
-                                零后台驻留，支持自定义任意磁盘目录存储
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <Laptop className="w-4 h-4" style={{ color: 'var(--zp-accent)' }} />
-                              <span className="font-semibold text-sm">
-                                GitHub Actions 自动打包矩阵 & 本地构建 (Node v22.23.3 同步)
-                              </span>
-                            </div>
-                            <p className="text-[11px] mt-0.5" style={{ color: 'var(--zp-text-muted)' }}>
-                              已写入仓库 <code className="font-mono-tabular">.github/workflows/release.yml</code>，锁定与当前项目一致的 Node.js <code className="font-mono-tabular">22.23.3</code> 及最新稳定版组件
-                            </p>
-                          </div>
-                          <div
-                            className="flex items-center gap-1 p-1 rounded-xl border"
-                            style={{
-                              borderColor: 'var(--zp-border)',
-                              backgroundColor: 'var(--zp-bg-surface)',
-                            }}
-                          >
-                            {(['github', 'win', 'mac', 'linux'] as const).map((osKey) => (
-                              <button
-                                key={osKey}
-                                type="button"
-                                onClick={() => setSelectedOs(osKey)}
-                                className="px-3 py-1 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0"
-                                style={{
-                                  backgroundColor:
-                                    selectedOs === osKey ? 'var(--zp-accent)' : 'transparent',
-                                  color:
-                                    selectedOs === osKey
-                                      ? 'var(--zp-accent-fg)'
-                                      : 'var(--zp-text-secondary)',
-                                }}
-                              >
-                                {osKey === 'github'
-                                  ? 'GitHub Actions (三端矩阵)'
-                                  : osKey === 'win'
-                                  ? 'Windows (.exe / .msi)'
-                                  : osKey === 'mac'
-                                  ? 'macOS (.dmg)'
-                                  : 'Linux (.AppImage)'}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div
-                          className="rounded-xl border overflow-hidden"
-                          style={{
-                            borderColor: 'var(--zp-border)',
-                            backgroundColor: 'var(--zp-bg-surface)',
-                          }}
-                        >
-                          <div
-                            className="flex items-center justify-between px-4 py-2.5 border-b"
-                            style={{ borderColor: 'var(--zp-border-subtle)' }}
-                          >
-                            <div>
-                              <span className="font-semibold">{activeOs.title}</span>
-                              <span
-                                className="ml-2 font-mono-tabular"
-                                style={{ color: 'var(--zp-text-muted)' }}
-                              >
-                                · {activeOs.targets}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(activeOs.code);
-                                  setCopiedScript(true);
-                                  setTimeout(() => setCopiedScript(false), 1800);
-                                }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border whitespace-nowrap shrink-0"
-                                style={{
-                                  borderColor: 'var(--zp-border)',
-                                  color: 'var(--zp-text-secondary)',
-                                }}
-                              >
-                                {copiedScript ? (
-                                  <Check className="w-3.5 h-3.5 text-emerald-500" />
-                                ) : (
-                                  <Copy className="w-3.5 h-3.5" />
-                                )}
-                                <span>{copiedScript ? '已复制' : '复制构建脚本'}</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const blob = new Blob([activeOs.code], {
-                                    type: 'text/plain;charset=utf-8',
-                                  });
-                                  const url = URL.createObjectURL(blob);
-                                  const a = document.createElement('a');
-                                  a.href = url;
-                                  a.download = activeOs.scriptName;
-                                  a.click();
-                                  URL.revokeObjectURL(url);
-                                }}
-                                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg font-medium whitespace-nowrap shrink-0"
-                                style={{
-                                  backgroundColor: 'var(--zp-accent)',
-                                  color: 'var(--zp-accent-fg)',
-                                }}
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                                <span>下载 {activeOs.scriptName}</span>
-                              </button>
-                            </div>
-                          </div>
-                          <pre
-                            className="p-4 font-mono-tabular text-xs overflow-x-auto leading-relaxed"
-                            style={{
-                              backgroundColor: 'var(--zp-code-bg)',
-                              color: 'var(--zp-text-primary)',
-                            }}
-                          >
-                            {activeOs.code}
-                          </pre>
                         </div>
                       </div>
                     </motion.div>
@@ -1869,248 +1577,6 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                   </div>
                 </div>
               )}
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-};
-
-/* ==========================================================================
-   4. COLLECTION RUNNER (BATCH AUTOMATION) MODAL
-   ========================================================================== */
-interface CollectionRunnerModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  folders: CollectionFolder[];
-  requests: ApiRequestItem[];
-  activeEnv: EnvironmentProfile | null;
-  engine: 'local-proxy' | 'browser-direct';
-}
-
-interface RunnerStepResult {
-  request: ApiRequestItem;
-  status: number;
-  durationMs: number;
-  passedAssertions: number;
-  totalAssertions: number;
-  ok: boolean;
-}
-
-export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
-  isOpen,
-  onClose,
-  folders,
-  requests,
-  activeEnv,
-  engine,
-}) => {
-  const [selectedFolderId, setSelectedFolderId] = useState<string>('ALL');
-  const [running, setRunning] = useState(false);
-  const [results, setResults] = useState<RunnerStepResult[]>([]);
-
-  const targetRequests =
-    selectedFolderId === 'ALL'
-      ? requests
-      : requests.filter((r) => r.folderId === selectedFolderId);
-
-  const handleRunBatch = async () => {
-    if (targetRequests.length === 0 || running) return;
-    setRunning(true);
-    setResults([]);
-
-    const stepList: RunnerStepResult[] = [];
-    for (const req of targetRequests) {
-      const res = await executeApiRequest(req, activeEnv, engine);
-      const passedCount = res.assertionResults.filter((a) => a.passed).length;
-      const totalCount = res.assertionResults.length;
-      const allAssertionsPassed =
-        totalCount === 0
-          ? res.status >= 200 && res.status < 400
-          : passedCount === totalCount;
-
-      stepList.push({
-        request: req,
-        status: res.status,
-        durationMs: res.timing.totalMs,
-        passedAssertions: passedCount,
-        totalAssertions: totalCount,
-        ok: allAssertionsPassed,
-      });
-      setResults([...stepList]);
-    }
-
-    setRunning(false);
-  };
-
-  const totalTime = results.reduce((acc, r) => acc + r.durationMs, 0);
-  const passedRequests = results.filter((r) => r.ok).length;
-
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px] p-4"
-          onClick={onClose}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-3xl rounded-2xl border overflow-hidden flex flex-col max-h-[85vh] zp-popover-shadow"
-            style={{
-              backgroundColor: 'var(--zp-bg-canvas)',
-              borderColor: 'var(--zp-border)',
-              color: 'var(--zp-text-primary)',
-            }}
-          >
-            <div
-              className="flex items-center justify-between px-5 py-3.5 border-b"
-              style={{ borderColor: 'var(--zp-border)', backgroundColor: 'var(--zp-bg-surface)' }}
-            >
-              <div className="flex items-center gap-2">
-                <Play className="w-4 h-4" style={{ color: 'var(--zp-accent)' }} />
-                <h2 className="text-sm font-semibold font-display">
-                  集合批量自动化测试 (Collection Runner)
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1.5 rounded-lg hover:opacity-80"
-                style={{ backgroundColor: 'var(--zp-bg-elevated)', color: 'var(--zp-text-secondary)' }}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div
-              className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b text-xs"
-              style={{
-                borderColor: 'var(--zp-border-subtle)',
-                backgroundColor: 'var(--zp-bg-surface)',
-              }}
-            >
-              <div className="flex items-center gap-3">
-                <span style={{ color: 'var(--zp-text-secondary)' }}>选择测试范围:</span>
-                <CustomSelect
-                  value={selectedFolderId}
-                  onChange={setSelectedFolderId}
-                  minWidth={240}
-                  options={[
-                    { value: 'ALL', label: `全部接口集合 (${requests.length} 个请求)` },
-                    ...folders.map((f) => ({
-                      value: f.id,
-                      label: `${f.name} (${requests.filter((r) => r.folderId === f.id).length} 个请求)`,
-                    })),
-                  ]}
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={handleRunBatch}
-                disabled={running || targetRequests.length === 0}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 whitespace-nowrap shrink-0"
-                style={{
-                  backgroundColor: 'var(--zp-accent)',
-                  color: 'var(--zp-accent-fg)',
-                }}
-              >
-                <Play className="w-3.5 h-3.5" />
-                <span>{running ? '正在顺序执行...' : `运行全部 (${targetRequests.length})`}</span>
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-5 space-y-3 text-xs">
-              {results.length > 0 && (
-                <div
-                  className="flex items-center justify-between px-4 py-2.5 rounded-xl border font-mono-tabular"
-                  style={{
-                    backgroundColor: 'var(--zp-bg-surface)',
-                    borderColor: 'var(--zp-border)',
-                  }}
-                >
-                  <span>
-                    执行进度: {results.length} / {targetRequests.length}
-                  </span>
-                  <span className="text-emerald-500">通过: {passedRequests}</span>
-                  <span className="text-rose-500">失败: {results.length - passedRequests}</span>
-                  <span>总计耗时: {totalTime} ms</span>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                {targetRequests.map((req, idx) => {
-                  const step = results[idx];
-                  const mStyle = METHOD_COLORS[req.method];
-                  return (
-                    <div
-                      key={req.id}
-                      className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border"
-                      style={{
-                        backgroundColor: 'var(--zp-bg-surface)',
-                        borderColor: 'var(--zp-border)',
-                      }}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span
-                          className={`font-mono-tabular font-bold text-xs w-12 shrink-0 ${mStyle.text}`}
-                        >
-                          {req.method}
-                        </span>
-                        <div className="truncate">
-                          <p className="font-medium truncate">{req.name}</p>
-                          <p
-                            className="font-mono-tabular text-[11px] truncate"
-                            style={{ color: 'var(--zp-text-muted)' }}
-                          >
-                            {req.url}
-                          </p>
-                        </div>
-                      </div>
-
-                      {step ? (
-                        <div className="flex items-center gap-3 font-mono-tabular shrink-0">
-                          <span
-                            className={
-                              step.status >= 200 && step.status < 300
-                                ? 'text-emerald-500'
-                                : 'text-rose-500'
-                            }
-                          >
-                            HTTP {step.status}
-                          </span>
-                          <span style={{ color: 'var(--zp-text-muted)' }}>·</span>
-                          <span style={{ color: 'var(--zp-text-secondary)' }}>
-                            {step.durationMs} ms
-                          </span>
-                          <span style={{ color: 'var(--zp-text-muted)' }}>·</span>
-                          <span className="inline-flex items-center gap-1">
-                            {step.ok ? (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                            ) : (
-                              <XCircle className="w-4 h-4 text-rose-500" />
-                            )}
-                            <span>
-                              断言 {step.passedAssertions}/{step.totalAssertions}
-                            </span>
-                          </span>
-                        </div>
-                      ) : (
-                        <span style={{ color: 'var(--zp-text-muted)' }}>待执行</span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
             </div>
           </motion.div>
         </motion.div>

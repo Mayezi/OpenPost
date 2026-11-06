@@ -35,6 +35,7 @@ import {
   Maximize2,
   Minimize2,
   ChevronDown,
+  Save,
 } from 'lucide-react';
 import {
   ApiRequestItem,
@@ -194,6 +195,7 @@ export default function App() {
   );
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedCurlQuick, setCopiedCurlQuick] = useState(false);
+  const [savedRequestNotice, setSavedRequestNotice] = useState<string | null>(null);
 
   // Unified Environment Popover, Icon-only Theme Popover & Window State
   const [envPopoverOpen, setEnvPopoverOpen] = useState(false);
@@ -405,10 +407,10 @@ export default function App() {
     [environments, activeEnvId]
   );
 
-  const activeRequest = useMemo(
-    () => requests.find((r) => r.id === activeRequestId) || requests[0] || null,
-    [requests, activeRequestId]
-  );
+  const activeRequest = useMemo(() => {
+    if (!activeRequestId || !openTabIds.includes(activeRequestId)) return null;
+    return requests.find((r) => r.id === activeRequestId) || null;
+  }, [requests, activeRequestId, openTabIds]);
 
   const updateActiveRequest = useCallback(
     (patch: Partial<ApiRequestItem>) => {
@@ -429,24 +431,33 @@ export default function App() {
 
   const handleCloseTab = (reqId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
+    const closedIdx = openTabIds.indexOf(reqId);
     const nextTabs = openTabIds.filter((id) => id !== reqId);
-    if (nextTabs.length > 0) {
-      setOpenTabIds(nextTabs);
-      if (activeRequestId === reqId) {
-        setActiveRequestId(nextTabs[nextTabs.length - 1]);
+    setOpenTabIds(nextTabs);
+    if (activeRequestId === reqId) {
+      if (nextTabs.length > 0) {
+        const fallbackIdx = Math.min(Math.max(0, closedIdx - 1), nextTabs.length - 1);
+        setActiveRequestId(nextTabs[fallbackIdx]);
+      } else {
+        setActiveRequestId('');
       }
     }
   };
 
+  const handleCloseAllTabs = () => {
+    setOpenTabIds([]);
+    setActiveRequestId('');
+  };
+
   const handleCreateNewRequest = (targetFolderId?: string) => {
     const fId =
-      targetFolderId || activeRequest?.folderId || folders[0]?.id || 'folder_local_sandbox';
+      targetFolderId || activeRequest?.folderId || folders[0]?.id || 'folder_http_inspector';
     const newReq: ApiRequestItem = {
       id: `req_${Date.now()}`,
       name: `新建接口 ${requests.length + 1}`,
       folderId: fId,
       method: 'GET',
-      url: '{{baseUrl}}/users',
+      url: '{{httpbinUrl}}/get',
       params: [],
       headers: [
         { id: `h_${Date.now()}`, key: 'Accept', value: 'application/json', enabled: true },
@@ -490,13 +501,12 @@ export default function App() {
 
   const handleDeleteRequest = (reqId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (requests.length <= 1) return;
     const nextReqs = requests.filter((r) => r.id !== reqId);
     setRequests(nextReqs);
     const nextTabs = openTabIds.filter((id) => id !== reqId);
-    setOpenTabIds(nextTabs.length > 0 ? nextTabs : [nextReqs[0].id]);
+    setOpenTabIds(nextTabs);
     if (activeRequestId === reqId) {
-      setActiveRequestId(nextTabs[0] || nextReqs[0].id);
+      setActiveRequestId(nextTabs[nextTabs.length - 1] || '');
     }
   };
 
@@ -586,16 +596,40 @@ export default function App() {
     [activeRequest, activeEnv, engineMode, loadingReqId, handleQuickSaveEnvVar]
   );
 
+  const handleSaveRequest = useCallback(async () => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.FOLDERS, JSON.stringify(folders));
+      localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(requests));
+      localStorage.setItem(STORAGE_KEYS.ENVIRONMENTS, JSON.stringify(environments));
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history.slice(0, 100)));
+      await fetch('/api/storage/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folders, requests, environments, history }),
+      });
+    } catch {
+      // LocalStorage is already updated
+    }
+    const timeStr = new Date().toLocaleTimeString();
+    setSavedRequestNotice(`已保存 (${timeStr})`);
+    setTimeout(() => {
+      setSavedRequestNotice(null);
+    }, 2200);
+  }, [folders, requests, environments, history]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         handleSendRequest();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveRequest();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSendRequest]);
+  }, [handleSendRequest, handleSaveRequest]);
 
   // JSON Body Formatting & Validation
   const jsonSyntaxStatus = useMemo(() => {
@@ -1363,16 +1397,14 @@ export default function App() {
                                         >
                                           <Copy className="w-3 h-3" />
                                         </button>
-                                        {requests.length > 1 && (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => handleDeleteRequest(req.id, e)}
-                                            className="p-0.5 hover:text-rose-500"
-                                            title="删除接口"
-                                          >
-                                            <Trash2 className="w-3 h-3" />
-                                          </button>
-                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleDeleteRequest(req.id, e)}
+                                          className="p-0.5 hover:text-rose-500"
+                                          title="删除接口"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
                                       </div>
                                     </div>
                                   );
@@ -1471,7 +1503,13 @@ export default function App() {
                 <div
                   key={req.id}
                   onClick={() => setActiveRequestId(req.id)}
-                  className="relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors max-w-[240px] shrink-0"
+                  onMouseDown={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault();
+                      handleCloseTab(req.id);
+                    }
+                  }}
+                  className="relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors max-w-[240px] shrink-0 group"
                   style={{
                     color: isActive ? 'var(--zp-text-primary)' : 'var(--zp-text-secondary)',
                   }}
@@ -1493,16 +1531,15 @@ export default function App() {
                     {req.method}
                   </span>
                   <span className="relative z-10 truncate font-medium">{req.name}</span>
-                  {openTabIds.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleCloseTab(req.id, e)}
-                      className="relative z-10 p-0.5 rounded-md hover:bg-black/10 dark:hover:bg-white/10 shrink-0"
-                      style={{ color: 'var(--zp-text-muted)' }}
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => handleCloseTab(req.id, e)}
+                    className="relative z-10 p-0.5 rounded-md hover:bg-black/10 dark:hover:bg-white/10 shrink-0"
+                    style={{ color: 'var(--zp-text-muted)' }}
+                    title="关闭此标签页"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
               );
             })}
@@ -1520,9 +1557,21 @@ export default function App() {
               <Plus className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
               <span>新建</span>
             </button>
+            {openTabIds.length > 0 && (
+              <button
+                type="button"
+                onClick={handleCloseAllTabs}
+                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs hover:bg-black/5 dark:hover:bg-white/5 shrink-0 ml-auto"
+                style={{ color: 'var(--zp-text-muted)' }}
+                title="关闭右侧所有已打开的标签页"
+              >
+                <X className="w-3 h-3" />
+                <span>关闭全部</span>
+              </button>
+            )}
           </div>
 
-          {activeRequest && (
+          {activeRequest ? (
             <div className="flex-1 flex flex-col min-h-0">
               {/* ================================================================
                   STREAMLINED REQUEST CONTROL BLOCK (BREADCRUMB + OMNIBAR)
@@ -1569,6 +1618,24 @@ export default function App() {
                         {resolvedPreviewUrl}
                       </span>
                     </span>
+                    <button
+                      type="button"
+                      onClick={handleSaveRequest}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium hover:opacity-85 whitespace-nowrap shrink-0"
+                      style={{
+                        borderColor: savedRequestNotice ? '#10B981' : 'var(--zp-border)',
+                        backgroundColor: 'var(--zp-bg-surface)',
+                        color: savedRequestNotice ? '#10B981' : 'var(--zp-text-secondary)',
+                      }}
+                      title="立即保存当前接口信息至本地磁盘 (快捷键 Ctrl+S / Cmd+S)"
+                    >
+                      {savedRequestNotice ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : (
+                        <Save className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
+                      )}
+                      <span>{savedRequestNotice || '保存 (Ctrl+S)'}</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -2473,6 +2540,50 @@ export default function App() {
                     onQuickSaveEnvVar={handleQuickSaveEnvVar}
                   />
                 </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none">
+              <img
+                src="/icons/openpost_icon_pack/png/transparent/openpost-128-transparent.png"
+                alt="openPost"
+                className="w-16 h-16 object-contain mb-4 opacity-80"
+              />
+              <h3 className="text-sm font-semibold font-display mb-1">
+                当前未打开任何接口标签页
+              </h3>
+              <p
+                className="text-xs max-w-md mb-5 leading-relaxed"
+                style={{ color: 'var(--zp-text-muted)' }}
+              >
+                可从左侧集合列表中点击任意接口打开，或直接新建接口、导入 cURL 命令进行调试。
+              </p>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleCreateNewRequest()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-95"
+                  style={{
+                    backgroundColor: 'var(--zp-accent)',
+                    color: 'var(--zp-accent-fg)',
+                  }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>新建接口请求</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsImportModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border text-xs font-medium hover:opacity-85"
+                  style={{
+                    borderColor: 'var(--zp-border)',
+                    backgroundColor: 'var(--zp-bg-surface)',
+                    color: 'var(--zp-text-primary)',
+                  }}
+                >
+                  <FolderSync className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
+                  <span>导入 cURL / Postman</span>
+                </button>
               </div>
             </div>
           )}

@@ -22,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -40,7 +40,7 @@ jobs:
           npm run build
 
       - name: Upload Compiled Frontend Assets (dist/)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: dist/
@@ -74,10 +74,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download Compiled Frontend Assets into dist/
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: frontend-dist
           path: dist/
@@ -108,7 +108,7 @@ jobs:
           tar -czf "release-dist/${{ matrix.artifact_name }}.tar.gz" -C release-dist openPost README.md
 
       - name: Upload Desktop Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: |
@@ -118,14 +118,10 @@ jobs:
 
       - name: Publish to GitHub Releases (on Tag Push)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          name: "openPost ${{ github.ref_name }}"
-          body: "100% Local-First, Zero-Login, Zero-Backdoor Rust Native API Client for Windows, macOS, and Linux."
-          draft: false
-          prerelease: false
-          files: |
-            release-dist/*.zip
-            release-dist/*.tar.gz
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          gh release view "$TAG_NAME" >/dev/null 2>&1 || gh release create "$TAG_NAME" --title "openPost $TAG_NAME" --notes "100% Local-First, Zero-Login, Zero-Backdoor Rust Native API Client for Windows, macOS, and Linux."
+          gh release upload "$TAG_NAME" release-dist/* --clobber

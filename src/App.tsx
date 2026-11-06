@@ -31,9 +31,6 @@ import {
   FileSpreadsheet,
   Braces,
   CheckCircle2,
-  Minus,
-  Maximize2,
-  Minimize2,
   ChevronDown,
 } from 'lucide-react';
 import {
@@ -201,7 +198,6 @@ export default function App() {
   const envPopoverRef = useRef<HTMLDivElement>(null);
   const [themePopoverOpen, setThemePopoverOpen] = useState(false);
   const themePopoverRef = useRef<HTMLDivElement>(null);
-  const [isMaximized, setIsMaximized] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Responses Map per Request ID
@@ -492,16 +488,6 @@ export default function App() {
     }
   };
 
-  const handleToggleMaximize = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.().catch(() => {});
-      setIsMaximized(true);
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-      setIsMaximized(false);
-    }
-  };
-
   // ==========================================================================
   // 4. SEND HTTP REQUEST HANDLER + KEYBOARD SHORTCUT (CTRL/CMD + ENTER)
   // ==========================================================================
@@ -650,7 +636,7 @@ export default function App() {
           - Right: Environment Selector + Icon-Only Theme Switcher + Icon-Only Settings + Native Minimize/Maximize/Close Window Controls
          ==================================================================== */}
       <header
-        className="h-10 flex items-center justify-between pl-3 pr-0 border-b shrink-0 zp-surface-transition"
+        className="h-10 flex items-center justify-between px-3 border-b shrink-0 zp-surface-transition"
         style={{
           backgroundColor: 'var(--zp-bg-surface)',
           borderColor: 'var(--zp-border)',
@@ -989,48 +975,6 @@ export default function App() {
               title="偏好设置 (字号缩放 / 自定义数据目录 / 代理引擎 / 多端构建)"
             >
               <Settings className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* NATIVE DESKTOP WINDOW CONTROLS (MINIMIZE / MAXIMIZE / CLOSE) */}
-          <div
-            className="flex items-center h-full border-l"
-            style={{ borderColor: 'var(--zp-border-subtle)' }}
-          >
-            <button
-              type="button"
-              onClick={() => setSidebarCollapsed((prev) => !prev)}
-              className="h-full w-11 inline-flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-              style={{ color: 'var(--zp-text-secondary)' }}
-              title="最小化侧边面板"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleMaximize}
-              className="h-full w-11 inline-flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-              style={{ color: 'var(--zp-text-secondary)' }}
-              title={isMaximized ? '向下还原窗口' : '最大化全屏工作台'}
-            >
-              {isMaximized ? (
-                <Minimize2 className="w-3.5 h-3.5" />
-              ) : (
-                <Maximize2 className="w-3.5 h-3.5" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (openTabIds.length > 1 && activeRequest) {
-                  handleCloseTab(activeRequest.id);
-                }
-              }}
-              className="h-full w-11 inline-flex items-center justify-center transition-colors hover:bg-[#E81123] hover:text-white"
-              style={{ color: 'var(--zp-text-secondary)' }}
-              title="关闭当前活动标签页"
-            >
-              <X className="w-4 h-4" />
             </button>
           </div>
         </div>

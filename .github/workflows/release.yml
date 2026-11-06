@@ -252,3 +252,11 @@ jobs:
           - **macOS 原生镜像安装包**: \`openPost-macOS-Universal.dmg\`
           - **Linux 原生安装包**: \`openPost-Linux-amd64.deb\`"
           gh release upload "$REL_TAG" release-dist/* --clobber
+
+          echo "### 📦 原生独立安装包直链下载（无需解压 .zip）" >> $GITHUB_STEP_SUMMARY
+          echo "> 提示：GitHub Actions 底部的 Artifacts 列表会被 GitHub 官方强制套一层 \`.zip\`；请直接点击下方 **GitHub Releases 直链** 下载原始安装包：" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          for f in release-dist/*; do
+            fname=$(basename "$f")
+            echo "- 🔗 [**点击直接下载 \`$fname\`**](https://github.com/${{ github.repository }}/releases/download/$REL_TAG/$fname)" >> $GITHUB_STEP_SUMMARY
+          done

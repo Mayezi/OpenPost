@@ -38,6 +38,7 @@ include!(concat!(env!("OUT_DIR"), "/embedded_assets.rs"));
 
 #[derive(Debug, Clone, Copy)]
 enum DesktopCommand {
+    Drag,
     Minimize,
     ToggleMaximize,
     Close,
@@ -446,6 +447,14 @@ fn handle_client(
         return;
     }
 
+    if path_only == "/api/window/drag" {
+        if let Some(ref p) = proxy {
+            let _ = p.send_event(DesktopCommand::Drag);
+        }
+        send_http_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#);
+        return;
+    }
+
     if path_only == "/api/window/minimize" {
         if let Some(ref p) = proxy {
             let _ = p.send_event(DesktopCommand::Minimize);
@@ -566,9 +575,6 @@ fn handle_client(
     );
 }
 
-/// Binds the local engine on an available loopback port.
-/// Never fails because of Windows Hyper-V / WSL reserved port ranges: tries candidate ports
-/// and automatically falls back to `127.0.0.1:0` (OS-assigned ephemeral port).
 fn bind_local_engine() -> (TcpListener, u16) {
     let mut candidate_ports = Vec::new();
     if let Ok(custom_port) = env::var("PORT") {
@@ -605,7 +611,6 @@ fn main() {
     let (listener, actual_port) = bind_local_engine();
     let url = format!("http://127.0.0.1:{}", actual_port);
 
-    // Headless / CI verification mode
     if env::var("OPENPOST_NO_BROWSER").unwrap_or_default() == "1" {
         for stream in listener.incoming().flatten() {
             let p = actual_port;
@@ -618,6 +623,7 @@ fn main() {
 
     let event_loop = EventLoopBuilder::<DesktopCommand>::with_user_event().build();
     let proxy = event_loop.create_proxy();
+    let ipc_proxy = event_loop.create_proxy();
 
     // Start in-process local HTTP & CORS-Free Proxy engine on a dedicated background thread
     thread::spawn(move || {
@@ -630,17 +636,35 @@ fn main() {
         }
     });
 
-    // Ensure background server thread is accepting connections before creating the WebView
     wait_until_server_ready(actual_port);
 
     let window = WindowBuilder::new()
-        .with_title("openPost — 100% Local-First API Debugging Studio")
+        .with_title("openPost")
         .with_inner_size(LogicalSize::new(1440.0, 900.0))
         .with_min_inner_size(LogicalSize::new(1024.0, 680.0))
         .build(&event_loop)
         .expect("Failed to create native desktop window");
 
-    let builder = WebViewBuilder::new().with_url(&url);
+    let builder = WebViewBuilder::new()
+        .with_url(&url)
+        .with_ipc_handler(move |request| {
+            let cmd_str = request.body().trim();
+            match cmd_str {
+                "drag" => {
+                    let _ = ipc_proxy.send_event(DesktopCommand::Drag);
+                }
+                "minimize" => {
+                    let _ = ipc_proxy.send_event(DesktopCommand::Minimize);
+                }
+                "maximize" => {
+                    let _ = ipc_proxy.send_event(DesktopCommand::ToggleMaximize);
+                }
+                "close" => {
+                    let _ = ipc_proxy.send_event(DesktopCommand::Close);
+                }
+                _ => {}
+            }
+        });
 
     #[cfg(any(
         target_os = "windows",
@@ -674,6 +698,9 @@ fn main() {
                 *control_flow = ControlFlow::Exit;
             }
             Event::UserEvent(cmd) => match cmd {
+                DesktopCommand::Drag => {
+                    let _ = window.drag_window();
+                }
                 DesktopCommand::Minimize => {
                     window.set_minimized(true);
                 }

@@ -31,6 +31,9 @@ import {
   FileSpreadsheet,
   Braces,
   CheckCircle2,
+  Minus,
+  Maximize2,
+  Minimize2,
   ChevronDown,
 } from 'lucide-react';
 import {
@@ -67,14 +70,14 @@ import {
 } from './components/Modals';
 
 const STORAGE_KEYS = {
-  THEME: 'zeropost_theme_id_v3',
-  FONT_SCALE: 'zeropost_font_scale_v3',
-  FOLDERS: 'zeropost_folders_v2',
-  REQUESTS: 'zeropost_requests_v2',
-  ENVIRONMENTS: 'zeropost_environments_v2',
-  ACTIVE_ENV: 'zeropost_active_env_v2',
-  HISTORY: 'zeropost_history_v2',
-  CUSTOM_DIR: 'zeropost_custom_dir_v2',
+  THEME: 'openpost_theme_id_v4',
+  FONT_SCALE: 'openpost_font_scale_v4',
+  FOLDERS: 'openpost_folders_v4',
+  REQUESTS: 'openpost_requests_v4',
+  ENVIRONMENTS: 'openpost_environments_v4',
+  ACTIVE_ENV: 'openpost_active_env_v4',
+  HISTORY: 'openpost_history_v4',
+  CUSTOM_DIR: 'openpost_custom_dir_v4',
 };
 
 type FontSizeScale = 'compact' | 'default' | 'comfortable' | 'large';
@@ -240,7 +243,7 @@ export default function App() {
         {
           id: `v_${Date.now()}`,
           key: 'baseUrl',
-          value: 'http://localhost:3000/api/mock',
+          value: 'http://127.0.0.1:8080',
           description: '接口基础地址',
           enabled: true,
         },
@@ -249,6 +252,69 @@ export default function App() {
     setEnvironments((prev) => [...prev, created]);
     setActiveEnvId(created.id);
     setQuickNewEnvName('');
+  };
+
+  // Hydrate workspace from real local disk files (`GET /api/storage/workspace`) on startup
+  useEffect(() => {
+    fetch('/api/storage/workspace')
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data || !data.ok) return;
+        if (data.storageDir) {
+          setCustomStoragePath(data.storageDir);
+        }
+        if (Array.isArray(data.folders) && data.folders.length > 0) {
+          const hasLegacyMock = data.folders.some(
+            (f: CollectionFolder) => f.id === 'folder_local_sandbox'
+          );
+          if (!hasLegacyMock) {
+            setFolders(data.folders);
+          }
+        }
+        if (Array.isArray(data.requests) && data.requests.length > 0) {
+          const hasLegacyMock = data.requests.some((reqItem: ApiRequestItem) =>
+            reqItem.url?.includes('/api/mock')
+          );
+          if (!hasLegacyMock) {
+            setRequests(data.requests);
+            setOpenTabIds(data.requests.slice(0, 3).map((r: ApiRequestItem) => r.id));
+            setActiveRequestId(data.requests[0].id);
+          }
+        }
+        if (Array.isArray(data.environments) && data.environments.length > 0) {
+          const hasLegacyMock = data.environments.some((envItem: EnvironmentProfile) =>
+            envItem.variables?.some((v) => v.value?.includes('/api/mock'))
+          );
+          if (!hasLegacyMock) {
+            setEnvironments(data.environments);
+          }
+        }
+        if (Array.isArray(data.history)) {
+          setHistory(data.history);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+
+  const sendDesktopWindowCmd = (cmd: 'drag' | 'minimize' | 'maximize' | 'close') => {
+    const win = window as unknown as { ipc?: { postMessage: (msg: string) => void } };
+    if (cmd === 'maximize') {
+      setIsWindowMaximized((prev) => !prev);
+    }
+    if (win.ipc?.postMessage) {
+      win.ipc.postMessage(cmd);
+    } else {
+      fetch(`/api/window/${cmd}`, { method: 'POST' }).catch(() => {});
+      if (cmd === 'maximize') {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen?.().catch(() => {});
+        } else {
+          document.exitFullscreen?.().catch(() => {});
+        }
+      }
+    }
   };
 
   // ==========================================================================
@@ -636,7 +702,17 @@ export default function App() {
           - Right: Environment Selector + Icon-Only Theme Switcher + Icon-Only Settings + Native Minimize/Maximize/Close Window Controls
          ==================================================================== */}
       <header
-        className="h-10 flex items-center justify-between px-3 border-b shrink-0 zp-surface-transition"
+        onMouseDown={(e) => {
+          if (e.button === 0 && e.target === e.currentTarget) {
+            sendDesktopWindowCmd('drag');
+          }
+        }}
+        onDoubleClick={(e) => {
+          if (e.target === e.currentTarget) {
+            sendDesktopWindowCmd('maximize');
+          }
+        }}
+        className="h-10 flex items-center justify-between pl-3 pr-0 border-b shrink-0 zp-surface-transition"
         style={{
           backgroundColor: 'var(--zp-bg-surface)',
           borderColor: 'var(--zp-border)',
@@ -697,7 +773,18 @@ export default function App() {
           </button>
         </div>
 
-        {/* RIGHT ZONE: Compact Env + Icon-Only Theme & Settings + Native Window Buttons */}
+        {/* DRAGGABLE FRAMELESS TITLEBAR REGION (DBX-style) */}
+        <div
+          className="flex-1 h-full min-w-[32px]"
+          onMouseDown={(e) => {
+            if (e.button === 0) {
+              sendDesktopWindowCmd('drag');
+            }
+          }}
+          onDoubleClick={() => sendDesktopWindowCmd('maximize')}
+        />
+
+        {/* RIGHT ZONE: Compact Env + Icon-Only Theme & Settings + Frameless Native Window Controls */}
         <div className="flex items-center h-full shrink-0">
           <div className="flex items-center gap-1 pr-2">
             {/* UNIFIED ENVIRONMENT SWITCHER + INLINE ADD + VARIABLE CONFIG POPOVER */}
@@ -975,6 +1062,44 @@ export default function App() {
               title="偏好设置 (字号缩放 / 自定义数据目录 / 代理引擎 / 多端构建)"
             >
               <Settings className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* FRAMELESS WINDOW CONTROLS (MINIMIZE / MAXIMIZE-RESTORE / CLOSE) */}
+          <div
+            className="flex items-center h-full border-l"
+            style={{ borderColor: 'var(--zp-border-subtle)' }}
+          >
+            <button
+              type="button"
+              onClick={() => sendDesktopWindowCmd('minimize')}
+              className="h-full w-11 inline-flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              style={{ color: 'var(--zp-text-secondary)' }}
+              title="最小化窗口"
+            >
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => sendDesktopWindowCmd('maximize')}
+              className="h-full w-11 inline-flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              style={{ color: 'var(--zp-text-secondary)' }}
+              title={isWindowMaximized ? '向下还原窗口' : '最大化窗口'}
+            >
+              {isWindowMaximized ? (
+                <Minimize2 className="w-3.5 h-3.5" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => sendDesktopWindowCmd('close')}
+              className="h-full w-11 inline-flex items-center justify-center transition-colors hover:bg-[#E81123] hover:text-white"
+              style={{ color: 'var(--zp-text-secondary)' }}
+              title="关闭 openPost"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>

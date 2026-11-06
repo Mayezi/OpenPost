@@ -459,7 +459,7 @@ export function generateCodeSnippet(
   env: EnvironmentProfile | null,
   lang: 'curl' | 'fetch' | 'axios' | 'python' | 'go' | 'rust'
 ): string {
-  const url = buildResolvedUrl(req, env) || 'http://localhost:3000/api/mock/users';
+  const url = buildResolvedUrl(req, env) || 'https://httpbin.org/get';
   const absoluteUrl = url.startsWith('/') ? `${window.location.origin}${url}` : url;
   const headers = buildResolvedHeaders(req, env);
   const body = buildResolvedBody(req, env);

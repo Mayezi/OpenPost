@@ -1,14 +1,17 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use tao::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -16,9 +19,6 @@ use tao::{
     window::WindowBuilder,
 };
 use wry::WebViewBuilder;
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "windows")]
 #[link(name = "advapi32")]
@@ -31,9 +31,6 @@ use std::os::windows::process::CommandExt;
 #[link(name = "gdi32")]
 extern "system" {}
 
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
-
 include!(concat!(env!("OUT_DIR"), "/embedded_assets.rs"));
 
 #[derive(Debug, Clone, Copy)]
@@ -44,132 +41,77 @@ enum DesktopCommand {
     Close,
 }
 
-fn json_escape(input: &str) -> String {
-    let mut out = String::with_capacity(input.len() + 16);
-    for ch in input.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
-            }
-            c => out.push(c),
-        }
-    }
-    out
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageConfig {
+    storage_dir: String,
+    auto_sync_to_disk: bool,
+    max_history_items: usize,
+    request_timeout_ms: u64,
+    verify_ssl: bool,
 }
 
-fn extract_json_string_field(raw: &str, key: &str) -> Option<String> {
-    let pattern = format!("\"{}\"", key);
-    let idx = raw.find(&pattern)?;
-    let after_key = &raw[idx + pattern.len()..];
-    let colon_idx = after_key.find(':')?;
-    let after_colon = after_key[colon_idx + 1..].trim_start();
-    if !after_colon.starts_with('"') {
-        return None;
-    }
-    let mut result = String::new();
-    let mut chars = after_colon[1..].chars();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            if let Some(esc) = chars.next() {
-                match esc {
-                    'n' => result.push('\n'),
-                    'r' => result.push('\r'),
-                    't' => result.push('\t'),
-                    '"' => result.push('"'),
-                    '\\' => result.push('\\'),
-                    other => result.push(other),
-                }
-            }
-        } else if c == '"' {
-            return Some(result);
-        } else {
-            result.push(c);
-        }
-    }
-    None
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DirStats {
+    file_count: usize,
+    total_bytes: u64,
+    files: Vec<String>,
 }
 
-/// Extracts simple flat string key-value pairs from a JSON object field like `"headers":{"Authorization":"Bearer xxx","X-Key":"val"}`
-fn extract_json_object_pairs(raw: &str, key: &str) -> Vec<(String, String)> {
-    let mut pairs = Vec::new();
-    let pattern = format!("\"{}\"", key);
-    let Some(idx) = raw.find(&pattern) else {
-        return pairs;
-    };
-    let after_key = &raw[idx + pattern.len()..];
-    let Some(open_brace) = after_key.find('{') else {
-        return pairs;
-    };
-    let rest = &after_key[open_brace + 1..];
-    let mut depth = 1;
-    let mut end_idx = 0;
-    let mut in_str = false;
-    let mut prev_backslash = false;
-    for (i, ch) in rest.char_indices() {
-        if in_str {
-            if ch == '"' && !prev_backslash {
-                in_str = false;
-            }
-            prev_backslash = ch == '\\' && !prev_backslash;
-        } else {
-            if ch == '"' {
-                in_str = true;
-            } else if ch == '{' {
-                depth += 1;
-            } else if ch == '}' {
-                depth -= 1;
-                if depth == 0 {
-                    end_idx = i;
-                    break;
-                }
-            }
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateStorageConfigPayload {
+    storage_dir: Option<String>,
+    auto_sync_to_disk: Option<bool>,
+    max_history_items: Option<usize>,
+    request_timeout_ms: Option<u64>,
+    verify_ssl: Option<bool>,
+    migrate_existing: Option<bool>,
+    clean_old_dir: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProxyRequestPayload {
+    url: String,
+    method: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    body: Option<Value>,
+    timeout_ms: Option<u64>,
+}
+
+fn app_config_file_path() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = env::var("LOCALAPPDATA") {
+            let dir = PathBuf::from(appdata).join("openPost");
+            let _ = fs::create_dir_all(&dir);
+            return dir.join("storage-config.json");
         }
     }
-    let obj_slice = &rest[..end_idx];
-    let mut cursor = obj_slice;
-    while let Some(q1) = cursor.find('"') {
-        let after_q1 = &cursor[q1 + 1..];
-        let Some(q2) = after_q1.find('"') else { break };
-        let k = &after_q1[..q2];
-        let after_k = &after_q1[q2 + 1..];
-        let Some(colon) = after_k.find(':') else { break };
-        let after_colon = after_k[colon + 1..].trim_start();
-        if after_colon.starts_with('"') {
-            let mut val = String::new();
-            let mut consumed = 1;
-            let mut chars = after_colon[1..].char_indices();
-            while let Some((ci, c)) = chars.next() {
-                consumed = ci + 2;
-                if c == '\\' {
-                    if let Some((ci2, esc)) = chars.next() {
-                        consumed = ci2 + 2;
-                        match esc {
-                            'n' => val.push('\n'),
-                            'r' => val.push('\r'),
-                            't' => val.push('\t'),
-                            '"' => val.push('"'),
-                            '\\' => val.push('\\'),
-                            other => val.push(other),
-                        }
-                    }
-                } else if c == '"' {
-                    break;
-                } else {
-                    val.push(c);
-                }
-            }
-            pairs.push((k.to_string(), val));
-            cursor = &after_colon[consumed.min(after_colon.len())..];
-        } else {
-            break;
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = env::var("HOME") {
+            let dir = PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join("openPost");
+            let _ = fs::create_dir_all(&dir);
+            return dir.join("storage-config.json");
         }
     }
-    pairs
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(home) = env::var("HOME") {
+            let dir = PathBuf::from(home).join(".config").join("openpost");
+            let _ = fs::create_dir_all(&dir);
+            return dir.join("storage-config.json");
+        }
+    }
+    env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".openpost-storage-config.json")
 }
 
 fn default_vault_dir() -> PathBuf {
@@ -204,6 +146,86 @@ fn default_vault_dir() -> PathBuf {
         .join("openpost_vault")
 }
 
+fn load_storage_config() -> StorageConfig {
+    let cfg_file = app_config_file_path();
+    if let Ok(raw) = fs::read_to_string(&cfg_file) {
+        if let Ok(parsed) = serde_json::from_str::<StorageConfig>(&raw) {
+            if !parsed.storage_dir.trim().is_empty() {
+                let _ = fs::create_dir_all(&parsed.storage_dir);
+                return parsed;
+            }
+        }
+    }
+    let vault = default_vault_dir();
+    let _ = fs::create_dir_all(&vault);
+    let cfg = StorageConfig {
+        storage_dir: vault.to_string_lossy().to_string(),
+        auto_sync_to_disk: true,
+        max_history_items: 100,
+        request_timeout_ms: 30000,
+        verify_ssl: true,
+    };
+    save_storage_config(&cfg);
+    cfg
+}
+
+fn save_storage_config(cfg: &StorageConfig) {
+    let cfg_file = app_config_file_path();
+    if let Ok(json_str) = serde_json::to_string_pretty(cfg) {
+        let _ = fs::write(cfg_file, json_str);
+    }
+}
+
+fn ensure_dir_writable(dir_path: &Path) -> Result<PathBuf, String> {
+    fs::create_dir_all(dir_path).map_err(|e| e.to_string())?;
+    let probe = dir_path.join(".openpost_write_probe");
+    fs::write(&probe, b"ok").map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(&probe);
+    Ok(fs::canonicalize(dir_path).unwrap_or_else(|_| dir_path.to_path_buf()))
+}
+
+fn compute_dir_stats(dir_path: &Path) -> DirStats {
+    let mut total_bytes = 0u64;
+    let mut files = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir_path) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if !name.starts_with('.') {
+                        total_bytes += meta.len();
+                        files.push(name);
+                    }
+                }
+            }
+        }
+    }
+    files.sort();
+    DirStats {
+        file_count: files.len(),
+        total_bytes,
+        files,
+    }
+}
+
+fn suggested_os_paths() -> Vec<String> {
+    let mut list = vec![default_vault_dir().to_string_lossy().to_string()];
+    #[cfg(target_os = "windows")]
+    {
+        list.push("D:\\openPost_Data\\Vault".to_string());
+        list.push("E:\\openPost_Data\\Vault".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        list.push("/Volumes/ExternalSSD/openPost_Vault".to_string());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        list.push("/mnt/data/openpost_vault".to_string());
+    }
+    list
+}
+
 fn send_http_response(stream: &mut TcpStream, status: &str, content_type: &str, body: &[u8]) {
     let header = format!(
         "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\nConnection: close\r\n\r\n",
@@ -216,16 +238,43 @@ fn send_http_response(stream: &mut TcpStream, status: &str, content_type: &str, 
     let _ = stream.flush();
 }
 
-fn handle_proxy_request(body_str: &str, port: u16) -> String {
-    let raw_url = extract_json_string_field(body_str, "url").unwrap_or_default();
-    let method = extract_json_string_field(body_str, "method")
-        .unwrap_or_else(|| "GET".to_string())
-        .to_uppercase();
-    let req_body = extract_json_string_field(body_str, "body").unwrap_or_default();
-    let req_headers = extract_json_object_pairs(body_str, "headers");
+fn send_json_response(stream: &mut TcpStream, status: &str, val: &Value) {
+    let bytes = serde_json::to_vec(val).unwrap_or_else(|_| b"{}".to_vec());
+    send_http_response(stream, status, "application/json; charset=utf-8", &bytes);
+}
 
-    if raw_url.trim().is_empty() {
-        return r#"{"ok":false,"status":400,"statusText":"Bad Request","error":"Target URL is required"}"#.to_string();
+/// Real Pure-Rust HTTP/HTTPS Execution Engine (`ureq` + `rustls`)
+fn execute_rust_http_proxy(body_str: &str, port: u16, default_timeout_ms: u64) -> Value {
+    let payload: ProxyRequestPayload = match serde_json::from_str(body_str) {
+        Ok(p) => p,
+        Err(e) => {
+            return json!({
+                "ok": false,
+                "status": 400,
+                "statusText": "Bad Request",
+                "error": format!("Invalid JSON request payload: {}", e),
+                "headers": {},
+                "cookies": [],
+                "sizeBytes": 0,
+                "body": "",
+                "timing": { "totalMs": 0, "ttfbMs": 0, "downloadMs": 0 }
+            });
+        }
+    };
+
+    let raw_url = payload.url.trim();
+    if raw_url.is_empty() {
+        return json!({
+            "ok": false,
+            "status": 400,
+            "statusText": "Bad Request",
+            "error": "Target URL is required",
+            "headers": {},
+            "cookies": [],
+            "sizeBytes": 0,
+            "body": "",
+            "timing": { "totalMs": 0, "ttfbMs": 0, "downloadMs": 0 }
+        });
     }
 
     let resolved_url = if raw_url.starts_with('/') {
@@ -233,141 +282,134 @@ fn handle_proxy_request(body_str: &str, port: u16) -> String {
     } else if !raw_url.starts_with("http://") && !raw_url.starts_with("https://") {
         format!("https://{}", raw_url)
     } else {
-        raw_url
+        raw_url.to_string()
     };
 
-    let start = Instant::now();
-    let mut cmd = Command::new("curl");
-    #[cfg(target_os = "windows")]
-    {
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    let method = payload
+        .method
+        .unwrap_or_else(|| "GET".to_string())
+        .to_uppercase();
+    let timeout_ms = payload
+        .timeout_ms
+        .unwrap_or(default_timeout_ms)
+        .clamp(1000, 120_000);
 
-    cmd.arg("-sS")
-        .arg("-i")
-        .arg("-L")
-        .arg("-X")
-        .arg(&method)
-        .arg("-m")
-        .arg("30");
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_millis(timeout_ms))
+        .redirects(5)
+        .build();
+
+    let mut req = agent.request(&method, &resolved_url);
 
     let mut has_ua = false;
-    let mut has_ct = false;
-    for (hk, hv) in &req_headers {
-        let lower = hk.to_lowercase();
-        if lower == "user-agent" {
-            has_ua = true;
+    if let Some(headers) = &payload.headers {
+        for (k, v) in headers {
+            let trimmed_k = k.trim();
+            if trimmed_k.is_empty() {
+                continue;
+            }
+            if trimmed_k.eq_ignore_ascii_case("user-agent") {
+                has_ua = true;
+            }
+            req = req.set(trimmed_k, v);
         }
-        if lower == "content-type" {
-            has_ct = true;
-        }
-        cmd.arg("-H").arg(format!("{}: {}", hk, hv));
     }
-
     if !has_ua {
-        cmd.arg("-A")
-            .arg("openPost-RustNative/2.0 (Local-First; Zero-Telemetry)");
+        req = req.set("User-Agent", "openPost-RustCore/2.0 (Native-Desktop)");
     }
 
-    if !req_body.is_empty() && method != "GET" && method != "HEAD" {
-        if !has_ct {
-            cmd.arg("-H").arg("Content-Type: application/json");
-        }
-        cmd.arg("--data-raw").arg(&req_body);
-    }
+    let body_text = match payload.body {
+        Some(Value::String(s)) => s,
+        Some(Value::Null) | None => String::new(),
+        Some(other) => serde_json::to_string(&other).unwrap_or_default(),
+    };
 
-    cmd.arg(&resolved_url);
+    let start_total = Instant::now();
+    let response_result = if !body_text.is_empty() && method != "GET" && method != "HEAD" {
+        req.send_string(&body_text)
+    } else {
+        req.call()
+    };
 
-    match cmd.output() {
-        Ok(output) => {
-            let elapsed_ms = start.elapsed().as_millis().max(1);
-            let raw_out = String::from_utf8_lossy(&output.stdout).to_string();
-            if !output.status.success() && raw_out.is_empty() {
-                let err_msg = String::from_utf8_lossy(&output.stderr).to_string();
-                return format!(
-                    r#"{{"ok":false,"status":0,"statusText":"Network Error","error":"{}","headers":{{}},"cookies":[],"sizeBytes":0,"body":"","timing":{{"totalMs":{},"ttfbMs":{},"downloadMs":0}}}}"#,
-                    json_escape(&err_msg),
-                    elapsed_ms,
-                    elapsed_ms
-                );
-            }
+    let ttfb_ms = start_total.elapsed().as_millis().max(1) as u64;
 
-            let (header_block, resp_body) = if let Some(pos) = raw_out.find("\r\n\r\n") {
-                (&raw_out[..pos], &raw_out[pos + 4..])
-            } else if let Some(pos) = raw_out.find("\n\n") {
-                (&raw_out[..pos], &raw_out[pos + 2..])
-            } else {
-                ("", raw_out.as_str())
-            };
-
-            let mut status_code: u16 = 200;
-            let mut status_text = "OK".to_string();
-            let mut headers_json_entries = Vec::new();
-            let mut cookies_json_entries = Vec::new();
-            let mut content_type_val = "application/json".to_string();
-
-            for line in header_block.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with("HTTP/") {
-                    let parts: Vec<&str> = trimmed.splitn(3, ' ').collect();
-                    if parts.len() >= 2 {
-                        status_code = parts[1].parse::<u16>().unwrap_or(200);
-                    }
-                    if parts.len() >= 3 {
-                        status_text = parts[2].to_string();
-                    }
-                    headers_json_entries.clear();
-                } else if let Some(colon) = trimmed.find(':') {
-                    let hk = trimmed[..colon].trim();
-                    let hv = trimmed[colon + 1..].trim();
-                    if hk.eq_ignore_ascii_case("set-cookie") {
-                        cookies_json_entries.push(format!("\"{}\"", json_escape(hv)));
-                    }
-                    if hk.eq_ignore_ascii_case("content-type") {
-                        content_type_val = hv.to_string();
-                    }
-                    headers_json_entries.push(format!(
-                        "\"{}\":\"{}\"",
-                        json_escape(&hk.to_lowercase()),
-                        json_escape(hv)
-                    ));
+    // In ureq, 4xx and 5xx responses return Err(ureq::Error::Status(code, response)),
+    // which is still a valid HTTP response from the target server!
+    let response = match response_result {
+        Ok(resp) => resp,
+        Err(ureq::Error::Status(_code, resp)) => resp,
+        Err(ureq::Error::Transport(transport_err)) => {
+            let elapsed_ms = start_total.elapsed().as_millis().max(1) as u64;
+            return json!({
+                "ok": false,
+                "status": 0,
+                "statusText": "Transport / Network Error",
+                "url": resolved_url,
+                "error": transport_err.to_string(),
+                "headers": {},
+                "cookies": [],
+                "contentType": "text/plain",
+                "sizeBytes": 0,
+                "body": "",
+                "timing": {
+                    "totalMs": elapsed_ms,
+                    "ttfbMs": elapsed_ms,
+                    "downloadMs": 0
                 }
-            }
-
-            let headers_json = format!("{{{}}}", headers_json_entries.join(","));
-            let cookies_json = format!("[{}]", cookies_json_entries.join(","));
-            let ttfb_ms = (elapsed_ms * 7 / 10).max(1);
-            let download_ms = elapsed_ms.saturating_sub(ttfb_ms);
-
-            format!(
-                r#"{{"ok":true,"status":{},"statusText":"{}","url":"{}","headers":{},"cookies":{},"contentType":"{}","sizeBytes":{},"body":"{}","timing":{{"totalMs":{},"ttfbMs":{},"downloadMs":{}}}}}"#,
-                status_code,
-                json_escape(&status_text),
-                json_escape(&resolved_url),
-                headers_json,
-                cookies_json,
-                json_escape(&content_type_val),
-                resp_body.len(),
-                json_escape(resp_body),
-                elapsed_ms,
-                ttfb_ms,
-                download_ms
-            )
+            });
         }
-        Err(e) => {
-            let elapsed_ms = start.elapsed().as_millis().max(1);
-            format!(
-                r#"{{"ok":false,"status":0,"statusText":"Proxy Error","error":"{}","headers":{{}},"cookies":[],"sizeBytes":0,"body":"","timing":{{"totalMs":{},"ttfbMs":{},"downloadMs":0}}}}"#,
-                json_escape(&e.to_string()),
-                elapsed_ms,
-                elapsed_ms
-            )
+    };
+
+    let status_code = response.status();
+    let status_text = response.status_text().to_string();
+    let final_url = response.get_url().to_string();
+    let content_type = response.content_type().to_string();
+
+    let mut headers_map = serde_json::Map::new();
+    let mut cookies_vec = Vec::new();
+    for name in response.headers_names() {
+        let all_vals = response.all(&name);
+        if name.eq_ignore_ascii_case("set-cookie") {
+            for c in &all_vals {
+                cookies_vec.push(Value::String((*c).to_string()));
+            }
+        }
+        if let Some(first_val) = all_vals.first() {
+            headers_map.insert(name.to_lowercase(), Value::String((*first_val).to_string()));
         }
     }
+
+    let mut raw_bytes = Vec::new();
+    let _ = response
+        .into_reader()
+        .take(50 * 1024 * 1024)
+        .read_to_end(&mut raw_bytes);
+
+    let total_ms = start_total.elapsed().as_millis().max(1) as u64;
+    let download_ms = total_ms.saturating_sub(ttfb_ms);
+    let size_bytes = raw_bytes.len();
+    let resp_body = String::from_utf8_lossy(&raw_bytes).to_string();
+
+    json!({
+        "ok": true,
+        "status": status_code,
+        "statusText": status_text,
+        "url": final_url,
+        "headers": headers_map,
+        "cookies": cookies_vec,
+        "contentType": content_type,
+        "sizeBytes": size_bytes,
+        "body": resp_body,
+        "timing": {
+            "totalMs": total_ms,
+            "ttfbMs": ttfb_ms,
+            "downloadMs": download_ms
+        }
+    })
 }
 
 fn read_http_request(stream: &mut TcpStream) -> Option<(String, String, String)> {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let mut data = Vec::with_capacity(16384);
     let mut chunk = [0u8; 8192];
     let mut header_end_pos = None;
@@ -425,6 +467,7 @@ fn read_http_request(stream: &mut TcpStream) -> Option<(String, String, String)>
 fn handle_client(
     mut stream: TcpStream,
     port: u16,
+    state: Arc<Mutex<StorageConfig>>,
     proxy: Option<EventLoopProxy<DesktopCommand>>,
 ) {
     let Some((method, full_path, body_str)) = read_http_request(&mut stream) else {
@@ -438,20 +481,24 @@ fn handle_client(
     }
 
     if path_only == "/api/health" {
-        send_http_response(
+        send_json_response(
             &mut stream,
             "200 OK",
-            "application/json",
-            br#"{"ok":true,"engine":"openPost-Rust-Native-WebView","version":"2.0.0"}"#,
+            &json!({
+                "ok": true,
+                "engine": "openPost-Rust-Native-Core",
+                "version": "2.0.0"
+            }),
         );
         return;
     }
 
+    // Native Window Control Endpoints (Frameless Titlebar Integration)
     if path_only == "/api/window/drag" {
         if let Some(ref p) = proxy {
             let _ = p.send_event(DesktopCommand::Drag);
         }
-        send_http_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#);
+        send_json_response(&mut stream, "200 OK", &json!({ "ok": true }));
         return;
     }
 
@@ -459,7 +506,7 @@ fn handle_client(
         if let Some(ref p) = proxy {
             let _ = p.send_event(DesktopCommand::Minimize);
         }
-        send_http_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#);
+        send_json_response(&mut stream, "200 OK", &json!({ "ok": true }));
         return;
     }
 
@@ -467,91 +514,223 @@ fn handle_client(
         if let Some(ref p) = proxy {
             let _ = p.send_event(DesktopCommand::ToggleMaximize);
         }
-        send_http_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#);
+        send_json_response(&mut stream, "200 OK", &json!({ "ok": true }));
         return;
     }
 
     if path_only == "/api/window/close" {
-        send_http_response(&mut stream, "200 OK", "application/json", br#"{"ok":true}"#);
+        send_json_response(&mut stream, "200 OK", &json!({ "ok": true }));
         if let Some(ref p) = proxy {
             let _ = p.send_event(DesktopCommand::Close);
         } else {
             thread::spawn(|| {
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(80));
                 std::process::exit(0);
             });
         }
         return;
     }
 
-    // 1. Storage Config API
-    if path_only == "/api/storage/config" {
-        let vault = default_vault_dir();
-        let _ = fs::create_dir_all(&vault);
-        let vault_str = json_escape(&vault.to_string_lossy());
-        let resp = format!(
-            r#"{{"ok":true,"displayPath":"{}","config":{{"storageDir":"{}","autoSyncToDisk":true,"maxHistoryItems":100,"requestTimeoutMs":30000,"verifySsl":true}},"stats":{{"fileCount":4,"totalBytes":18420,"files":["collections_folders.json","collections_requests.json","environments.json","history.json"]}},"suggestedPaths":["D:\\openPost_Data\\Vault","E:\\DevWorkspace\\openPost_Vault","/Volumes/ExternalSSD/openPost_Vault","/mnt/data/openpost_vault"]}}"#,
-            vault_str, vault_str
+    // 1. Real Storage Configuration & Migration API
+    if path_only == "/api/storage/config" && method == "GET" {
+        let cfg = state.lock().unwrap().clone();
+        let dir_path = PathBuf::from(&cfg.storage_dir);
+        let _ = fs::create_dir_all(&dir_path);
+        let stats = compute_dir_stats(&dir_path);
+        send_json_response(
+            &mut stream,
+            "200 OK",
+            &json!({
+                "ok": true,
+                "displayPath": cfg.storage_dir,
+                "config": cfg,
+                "stats": stats,
+                "suggestedPaths": suggested_os_paths()
+            }),
         );
-        send_http_response(&mut stream, "200 OK", "application/json", resp.as_bytes());
         return;
     }
 
-    if path_only == "/api/storage/sync" {
-        let vault = default_vault_dir();
-        let _ = fs::create_dir_all(&vault);
-        let _ = fs::write(vault.join("workspace_snapshot.json"), body_str.as_bytes());
-        let resp = r#"{"ok":true,"stats":{"fileCount":4,"totalBytes":20480,"files":["workspace_snapshot.json"]}}"#;
-        send_http_response(&mut stream, "200 OK", "application/json", resp.as_bytes());
-        return;
-    }
+    if path_only == "/api/storage/config" && method == "POST" {
+        let payload: UpdateStorageConfigPayload = match serde_json::from_str(&body_str) {
+            Ok(p) => p,
+            Err(e) => {
+                send_json_response(
+                    &mut stream,
+                    "400 Bad Request",
+                    &json!({ "ok": false, "error": format!("Invalid JSON: {}", e) }),
+                );
+                return;
+            }
+        };
 
-    // 2. Local Sandbox Mock Endpoints
-    if path_only == "/api/mock/users" {
-        let resp = r#"{"ok":true,"mode":"100% Local Rust Native Sandbox","data":[{"id":"usr_01","name":"Linus Torvalds","role":"Kernel Architect","platform":"Linux x86_64","active":true,"commits":14820},{"id":"usr_02","name":"Ada Lovelace","role":"Systems Pioneer","platform":"macOS arm64","active":true,"commits":9410},{"id":"usr_03","name":"Ken Thompson","role":"Unix Creator","platform":"Linux riscv64","active":true,"commits":12350},{"id":"usr_04","name":"Margaret Hamilton","role":"Flight Software Lead","platform":"Windows 11 x64","active":false,"commits":8930}]}"#;
-        send_http_response(&mut stream, "200 OK", "application/json", resp.as_bytes());
-        return;
-    }
+        let mut cfg = state.lock().unwrap().clone();
+        let old_dir = PathBuf::from(&cfg.storage_dir);
+        let target_dir_str = payload
+            .storage_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&cfg.storage_dir);
+        let target_dir = PathBuf::from(target_dir_str);
 
-    if path_only == "/api/mock/auth/token" {
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let resp = format!(
-            r#"{{"ok":true,"token_type":"Bearer","access_token":"op_rust_local_jwt_{}","expires_in":3600,"security_notice":"Generated inside openPost Rust native binary."}}"#,
-            ts
+        let resolved_dir = match ensure_dir_writable(&target_dir) {
+            Ok(d) => d,
+            Err(err) => {
+                send_json_response(
+                    &mut stream,
+                    "400 Bad Request",
+                    &json!({
+                        "ok": false,
+                        "error": format!("无法创建或写入目标目录 ({})，请检查磁盘权限或盘符。", err)
+                    }),
+                );
+                return;
+            }
+        };
+
+        let migrate = payload.migrate_existing.unwrap_or(true);
+        let clean_old = payload.clean_old_dir.unwrap_or(false);
+        let mut migrated_files = 0usize;
+
+        if migrate && resolved_dir != old_dir && old_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&old_dir) {
+                for entry in entries.flatten() {
+                    let src_path = entry.path();
+                    if src_path.is_file()
+                        && src_path.extension().and_then(|e| e.to_str()) == Some("json")
+                    {
+                        let dest_path = resolved_dir.join(entry.file_name());
+                        if fs::copy(&src_path, &dest_path).is_ok() {
+                            migrated_files += 1;
+                            if clean_old {
+                                let _ = fs::remove_file(&src_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        cfg.storage_dir = resolved_dir.to_string_lossy().to_string();
+        if let Some(v) = payload.auto_sync_to_disk {
+            cfg.auto_sync_to_disk = v;
+        }
+        if let Some(v) = payload.max_history_items {
+            cfg.max_history_items = v.max(10);
+        }
+        if let Some(v) = payload.request_timeout_ms {
+            cfg.request_timeout_ms = v.clamp(1000, 120_000);
+        }
+        if let Some(v) = payload.verify_ssl {
+            cfg.verify_ssl = v;
+        }
+
+        save_storage_config(&cfg);
+        *state.lock().unwrap() = cfg.clone();
+
+        let stats = compute_dir_stats(&resolved_dir);
+        send_json_response(
+            &mut stream,
+            "200 OK",
+            &json!({
+                "ok": true,
+                "displayPath": cfg.storage_dir,
+                "config": cfg,
+                "migratedFiles": migrated_files,
+                "stats": stats
+            }),
         );
-        send_http_response(&mut stream, "201 Created", "application/json", resp.as_bytes());
         return;
     }
 
-    if path_only == "/api/mock/echo" {
-        let resp = format!(
-            r#"{{"ok":true,"method":"{}","path":"{}","body":"{}","engine":"openPost-Rust-Native"}}"#,
-            json_escape(&method),
-            json_escape(&full_path),
-            json_escape(&body_str)
+    // 2. Real Disk Workspace Load (`GET /api/storage/workspace`) & Save (`POST /api/storage/sync`)
+    if path_only == "/api/storage/workspace" && method == "GET" {
+        let cfg = state.lock().unwrap().clone();
+        let dir = PathBuf::from(&cfg.storage_dir);
+        let read_json_file = |filename: &str| -> Option<Value> {
+            let p = dir.join(filename);
+            let raw = fs::read_to_string(p).ok()?;
+            serde_json::from_str::<Value>(&raw).ok()
+        };
+
+        let folders = read_json_file("collections_folders.json");
+        let requests = read_json_file("collections_requests.json");
+        let environments = read_json_file("environments.json");
+        let history = read_json_file("history.json");
+        let stats = compute_dir_stats(&dir);
+
+        send_json_response(
+            &mut stream,
+            "200 OK",
+            &json!({
+                "ok": true,
+                "storageDir": cfg.storage_dir,
+                "folders": folders,
+                "requests": requests,
+                "environments": environments,
+                "history": history,
+                "stats": stats
+            }),
         );
-        send_http_response(&mut stream, "200 OK", "application/json", resp.as_bytes());
         return;
     }
 
-    if path_only == "/api/mock/ai/completions" {
-        let resp = r#"{"id":"chatcmpl-rust-local","object":"chat.completion","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"openPost Rust native endpoint verified on localhost."}}]}"#;
-        send_http_response(&mut stream, "200 OK", "application/json", resp.as_bytes());
+    if path_only == "/api/storage/sync" && method == "POST" {
+        let cfg = state.lock().unwrap().clone();
+        let dir = PathBuf::from(&cfg.storage_dir);
+        let _ = fs::create_dir_all(&dir);
+
+        if let Ok(val) = serde_json::from_str::<Value>(&body_str) {
+            if let Some(folders) = val.get("folders") {
+                if let Ok(s) = serde_json::to_string_pretty(folders) {
+                    let _ = fs::write(dir.join("collections_folders.json"), s);
+                }
+            }
+            if let Some(requests) = val.get("requests") {
+                if let Ok(s) = serde_json::to_string_pretty(requests) {
+                    let _ = fs::write(dir.join("collections_requests.json"), s);
+                }
+            }
+            if let Some(environments) = val.get("environments") {
+                if let Ok(s) = serde_json::to_string_pretty(environments) {
+                    let _ = fs::write(dir.join("environments.json"), s);
+                }
+            }
+            if let Some(history) = val.get("history") {
+                if let Ok(s) = serde_json::to_string_pretty(history) {
+                    let _ = fs::write(dir.join("history.json"), s);
+                }
+            }
+        }
+
+        let stats = compute_dir_stats(&dir);
+        send_json_response(
+            &mut stream,
+            "200 OK",
+            &json!({
+                "ok": true,
+                "storageDir": cfg.storage_dir,
+                "stats": stats
+            }),
+        );
         return;
     }
 
-    // 3. Local CORS-Free Proxy Engine
+    // 3. Real Rust HTTP/HTTPS Proxy Engine (`POST /api/proxy`)
     if path_only == "/api/proxy" && method == "POST" {
-        let proxy_json = handle_proxy_request(&body_str, port);
-        send_http_response(&mut stream, "200 OK", "application/json", proxy_json.as_bytes());
+        let timeout_ms = state.lock().unwrap().request_timeout_ms;
+        let result = execute_rust_http_proxy(&body_str, port, timeout_ms);
+        send_json_response(&mut stream, "200 OK", &result);
         return;
     }
 
     // 4. Serve Embedded Frontend Assets
-    let lookup_path = if path_only == "/" { "/index.html" } else { path_only };
+    let lookup_path = if path_only == "/" {
+        "/index.html"
+    } else {
+        path_only
+    };
     for (asset_path, mime, bytes) in EMBEDDED_ASSETS {
         if *asset_path == lookup_path {
             send_http_response(&mut stream, "200 OK", mime, bytes);
@@ -559,7 +738,6 @@ fn handle_client(
         }
     }
 
-    // SPA fallback to index.html
     for (asset_path, mime, bytes) in EMBEDDED_ASSETS {
         if *asset_path == "/index.html" {
             send_http_response(&mut stream, "200 OK", mime, bytes);
@@ -608,14 +786,16 @@ fn wait_until_server_ready(port: u16) {
 }
 
 fn main() {
+    let initial_config = Arc::new(Mutex::new(load_storage_config()));
     let (listener, actual_port) = bind_local_engine();
     let url = format!("http://127.0.0.1:{}", actual_port);
 
     if env::var("OPENPOST_NO_BROWSER").unwrap_or_default() == "1" {
         for stream in listener.incoming().flatten() {
             let p = actual_port;
+            let st = Arc::clone(&initial_config);
             thread::spawn(move || {
-                handle_client(stream, p, None);
+                handle_client(stream, p, st, None);
             });
         }
         return;
@@ -625,21 +805,25 @@ fn main() {
     let proxy = event_loop.create_proxy();
     let ipc_proxy = event_loop.create_proxy();
 
-    // Start in-process local HTTP & CORS-Free Proxy engine on a dedicated background thread
+    let server_state = Arc::clone(&initial_config);
     thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let p = actual_port;
+            let st = Arc::clone(&server_state);
             let proxy_clone = Some(proxy.clone());
             thread::spawn(move || {
-                handle_client(stream, p, proxy_clone);
+                handle_client(stream, p, st, proxy_clone);
             });
         }
     });
 
     wait_until_server_ready(actual_port);
 
+    // Frameless window (`with_decorations(false)`) just like DBX:
+    // No system OS titlebar/status bar at the top; the custom top bar controls drag/minimize/maximize/close directly.
     let window = WindowBuilder::new()
         .with_title("openPost")
+        .with_decorations(false)
         .with_inner_size(LogicalSize::new(1440.0, 900.0))
         .with_min_inner_size(LogicalSize::new(1024.0, 680.0))
         .build(&event_loop)

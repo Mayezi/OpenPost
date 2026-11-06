@@ -61,7 +61,6 @@ function ensureDirExists(dirPath: string): { ok: boolean; resolvedPath: string; 
     if (!fs.existsSync(resolved)) {
       fs.mkdirSync(resolved, { recursive: true });
     }
-    // Test write permission
     const probeFile = path.join(resolved, '.zp_write_probe');
     fs.writeFileSync(probeFile, 'ok', 'utf-8');
     fs.unlinkSync(probeFile);
@@ -84,6 +83,7 @@ function getDirStats(dirPath: string): { fileCount: number; totalBytes: number; 
     let totalBytes = 0;
     const files: string[] = [];
     for (const entry of entries) {
+      if (entry.startsWith('.')) continue;
       const full = path.join(dirPath, entry);
       const stat = fs.statSync(full);
       if (stat.isFile()) {
@@ -91,9 +91,20 @@ function getDirStats(dirPath: string): { fileCount: number; totalBytes: number; 
         files.push(entry);
       }
     }
+    files.sort();
     return { fileCount: files.length, totalBytes, files };
   } catch {
     return { fileCount: 0, totalBytes: 0, files: [] };
+  }
+}
+
+function readJsonFileSafe(filePath: string): unknown {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
 }
 
@@ -108,25 +119,28 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
   app.use(express.text({ type: ['text/*', 'application/xml', 'application/graphql'], limit: '50mb' }));
 
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.status(200).json({ ok: true, engine: 'openPost-Local-Runtime', version: '2.0.0' });
+  });
+
   // ============================================================================
-  // 1. CUSTOM LOCAL DATA STORAGE DIRECTORY MANAGEMENT API
-  // Allows user to relocate storage directory off the default system disk
+  // 1. REAL LOCAL DISK STORAGE & WORKSPACE PERSISTENCE API
   // ============================================================================
   app.get('/api/storage/config', (_req: Request, res: Response) => {
     const stats = getDirStats(currentConfig.storageDir);
     const homedir = os.homedir();
-    const tmpdir = os.tmpdir();
     const suggestedPaths = [
       DEFAULT_VAULT_DIR,
       path.join(homedir, 'openPost_Vault'),
-      path.join(tmpdir, 'openPost_External_Disk'),
       'D:\\openPost_Data\\Vault',
+      'E:\\openPost_Data\\Vault',
       '/Volumes/ExternalSSD/openPost_Vault',
       '/mnt/data/openpost_vault',
     ];
 
     res.status(200).json({
       ok: true,
+      displayPath: currentConfig.storageDir,
       config: currentConfig,
       stats,
       platform: `${os.platform()} (${os.arch()})`,
@@ -148,8 +162,6 @@ async function startServer() {
     const oldDir = currentConfig.storageDir;
     let targetDir = typeof storageDir === 'string' && storageDir.trim() ? storageDir.trim() : oldDir;
 
-    // On Linux container environment, if user enters a Windows drive path like D:\ZeroPost_Data,
-    // map it cleanly to a local mounted volume path so it succeeds in both sandbox and native OS
     let virtualMappedFrom: string | undefined;
     if (os.platform() !== 'win32' && /^[A-Za-z]:\\/.test(targetDir)) {
       virtualMappedFrom = targetDir;
@@ -166,7 +178,6 @@ async function startServer() {
       return;
     }
 
-    // Migrate files if directory changed
     let migratedFiles = 0;
     if (migrateExisting && check.resolvedPath !== oldDir && fs.existsSync(oldDir)) {
       try {
@@ -203,6 +214,25 @@ async function startServer() {
       config: currentConfig,
       displayPath: virtualMappedFrom || currentConfig.storageDir,
       migratedFiles,
+      stats,
+    });
+  });
+
+  app.get('/api/storage/workspace', (_req: Request, res: Response) => {
+    const dir = currentConfig.storageDir;
+    const folders = readJsonFileSafe(path.join(dir, 'collections_folders.json'));
+    const requests = readJsonFileSafe(path.join(dir, 'collections_requests.json'));
+    const environments = readJsonFileSafe(path.join(dir, 'environments.json'));
+    const history = readJsonFileSafe(path.join(dir, 'history.json'));
+    const stats = getDirStats(dir);
+
+    res.status(200).json({
+      ok: true,
+      storageDir: dir,
+      folders,
+      requests,
+      environments,
+      history,
       stats,
     });
   });
@@ -255,100 +285,7 @@ async function startServer() {
   });
 
   // ============================================================================
-  // 2. BUILT-IN LOCAL SANDBOX ENDPOINTS (100% OFFLINE TEST TARGETS)
-  // ============================================================================
-  const localUsers = [
-    { id: 'usr_01', name: 'Linus Torvalds', role: 'Kernel Architect', platform: 'Linux x86_64', active: true, commits: 14820 },
-    { id: 'usr_02', name: 'Ada Lovelace', role: 'Systems Pioneer', platform: 'macOS arm64', active: true, commits: 9410 },
-    { id: 'usr_03', name: 'Ken Thompson', role: 'Unix Creator', platform: 'Linux riscv64', active: true, commits: 12350 },
-    { id: 'usr_04', name: 'Margaret Hamilton', role: 'Flight Software Lead', platform: 'Windows 11 x64', active: false, commits: 8930 },
-  ];
-
-  app.get('/api/mock/users', (req: Request, res: Response) => {
-    const { role, platform, limit } = req.query;
-    let filtered = [...localUsers];
-    if (role && typeof role === 'string') {
-      filtered = filtered.filter((u) => u.role.toLowerCase().includes(role.toLowerCase()));
-    }
-    if (platform && typeof platform === 'string') {
-      filtered = filtered.filter((u) => u.platform.toLowerCase().includes(platform.toLowerCase()));
-    }
-    if (limit && !isNaN(Number(limit))) {
-      filtered = filtered.slice(0, Number(limit));
-    }
-    res.setHeader('X-OpenPost-Sandbox', 'Local-Memory-Engine');
-    res.setHeader('Set-Cookie', 'op_session=local_verified_99812a; Path=/; HttpOnly; SameSite=Strict');
-    res.status(200).json({
-      ok: true,
-      mode: '100% Local Sandbox (Zero External Network)',
-      storagePath: currentConfig.storageDir,
-      timestamp: new Date().toISOString(),
-      count: filtered.length,
-      data: filtered,
-    });
-  });
-
-  app.post('/api/mock/auth/token', (req: Request, res: Response) => {
-    const body = typeof req.body === 'object' && req.body !== null ? req.body : {};
-    const clientId = body.clientId || 'local-dev-client';
-    const scope = body.scope || 'read:apis write:collections';
-    const token = `op_local_jwt_${Buffer.from(`${clientId}:${Date.now()}`).toString('base64').replace(/=/g, '')}`;
-    res.setHeader('X-OpenPost-Auth', 'Issued-Locally');
-    res.status(201).json({
-      ok: true,
-      token_type: 'Bearer',
-      access_token: token,
-      expires_in: 3600,
-      scope,
-      issued_at: new Date().toISOString(),
-      security_notice: 'Generated locally inside openPost process. No cloud sync.',
-    });
-  });
-
-  app.all('/api/mock/echo', (req: Request, res: Response) => {
-    res.setHeader('X-Echo-Engine', 'openPost-Local-Loopback');
-    res.status(200).json({
-      ok: true,
-      method: req.method,
-      path: req.path,
-      query: req.query,
-      headers: req.headers,
-      body: req.body,
-      clientIp: req.ip || '127.0.0.1',
-      timestamp: new Date().toISOString(),
-    });
-  });
-
-  app.post('/api/mock/ai/completions', (req: Request, res: Response) => {
-    const authHeader = req.headers.authorization || '';
-    const body = typeof req.body === 'object' && req.body !== null ? req.body : {};
-    const model = body.model || 'deepseek-coder-v3-local';
-    res.status(200).json({
-      id: `chatcmpl-local-${Date.now()}`,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model,
-      authenticated: authHeader.startsWith('Bearer '),
-      usage: {
-        prompt_tokens: 42,
-        completion_tokens: 68,
-        total_tokens: 110,
-      },
-      choices: [
-        {
-          index: 0,
-          finish_reason: 'stop',
-          message: {
-            role: 'assistant',
-            content: 'openPost local endpoint verified. All request headers, payload parameters, and environment tokens were processed strictly on localhost.',
-          },
-        },
-      ],
-    });
-  });
-
-  // ============================================================================
-  // 3. LOCAL CORS-FREE PROXY ENGINE (/api/proxy)
+  // 2. REAL HTTP/HTTPS CORS-FREE PROXY ENGINE (/api/proxy)
   // ============================================================================
   app.post('/api/proxy', async (req: Request, res: Response) => {
     const {
@@ -489,7 +426,7 @@ async function startServer() {
   });
 
   // ============================================================================
-  // 4. VITE MIDDLEWARE OR STATIC DIST SERVING
+  // 3. VITE MIDDLEWARE OR STATIC DIST SERVING
   // ============================================================================
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

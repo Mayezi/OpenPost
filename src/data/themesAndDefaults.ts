@@ -289,65 +289,57 @@ export const METHOD_COLORS: Record<HttpMethod, { text: string; bg: string; borde
 
 export const INITIAL_FOLDERS: CollectionFolder[] = [
   {
-    id: 'folder_local_sandbox',
-    name: '01. 本地沙箱接口 (零外网联调)',
-    description: '内置于本地进程的零延迟测试接口，支持鉴权提取与全方法回显',
+    id: 'folder_http_inspector',
+    name: '01. HTTP 标准联调集 (HTTPBin / REST)',
+    description: '直连真实 HTTP/HTTPS 端点，验证请求头、Query 参数、JSON 载荷与响应耗时',
     expanded: true,
   },
   {
-    id: 'folder_ai_endpoints',
-    name: '02. AI 模型与推理接口模板',
-    description: '主流大模型 OpenAI / Anthropic / DeepSeek 兼容格式调试集',
+    id: 'folder_local_services',
+    name: '02. 本地微服务与 AI 接口 (Localhost)',
+    description: '本地开发服务与 OpenAI / Ollama / vLLM 兼容格式接口调试',
     expanded: true,
-  },
-  {
-    id: 'folder_public_http',
-    name: '03. 公网标准测试集 (HTTPBin / REST)',
-    description: '通过本地无跨域代理直连标准外部公网测试端点',
-    expanded: false,
   },
 ];
 
 export const INITIAL_ENVIRONMENTS: EnvironmentProfile[] = [
   {
-    id: 'env_local',
-    name: 'Localhost 零信任沙箱',
+    id: 'env_default',
+    name: 'Default 默认联调环境',
     variables: [
-      { id: 'v1', key: 'baseUrl', value: '/api/mock', description: '内置本地沙箱根路径', enabled: true },
-      { id: 'v2', key: 'auth_token', value: 'op_local_jwt_demo_token_2026', description: '本地 Bearer 令牌 (可通过登录接口自动更新)', enabled: true },
-      { id: 'v3', key: 'client_id', value: 'openpost-desktop-win-mac-linux', description: '客户端标识', enabled: true },
-      { id: 'v4', key: 'ai_model', value: 'deepseek-coder-v3-local', description: '默认本地调试模型名', enabled: true },
+      { id: 'v1', key: 'httpbinUrl', value: 'https://httpbin.org', description: 'HTTPBin 标准测试服务', enabled: true },
+      { id: 'v2', key: 'restApiUrl', value: 'https://jsonplaceholder.typicode.com', description: 'REST JSON 联调服务', enabled: true },
+      { id: 'v3', key: 'localUrl', value: 'http://127.0.0.1:8080', description: '本地后端服务地址', enabled: true },
+      { id: 'v4', key: 'apiKey', value: '', description: 'Bearer Token / API Key', enabled: true },
     ],
   },
   {
-    id: 'env_production',
-    name: 'Production 生产环境预览',
+    id: 'env_local_dev',
+    name: 'Localhost 本地开发环境',
     variables: [
-      { id: 'v20', key: 'baseUrl', value: 'https://httpbin.org', description: '公网 HTTPBin 地址', enabled: true },
-      { id: 'v21', key: 'auth_token', value: 'prod_live_998123a_secret', description: '生产只读 Token', enabled: true },
-      { id: 'v22', key: 'client_id', value: 'openpost-prod-verifier', description: '生产客户端标识', enabled: true },
+      { id: 'v10', key: 'baseUrl', value: 'http://127.0.0.1:8080', description: '本地服务根路径', enabled: true },
+      { id: 'v11', key: 'ollamaUrl', value: 'http://127.0.0.1:11434', description: '本地 Ollama 服务地址', enabled: true },
+      { id: 'v12', key: 'apiKey', value: '', description: '本地调试密钥', enabled: true },
     ],
   },
 ];
 
 export const INITIAL_REQUESTS: ApiRequestItem[] = [
   {
-    id: 'req_local_users',
-    name: '查询系统工程师列表',
-    folderId: 'folder_local_sandbox',
+    id: 'req_httpbin_get',
+    name: 'GET 请求头与参数检视 (HTTPBin)',
+    folderId: 'folder_http_inspector',
     method: 'GET',
-    url: '{{baseUrl}}/users',
+    url: '{{httpbinUrl}}/get',
     params: [
-      { id: 'p1', key: 'limit', value: '4', description: '返回最大记录数', enabled: true },
-      { id: 'p2', key: 'platform', value: 'Linux', description: '按系统平台过滤 (可选)', enabled: false },
+      { id: 'p1', key: 'client', value: 'openPost', description: '客户端标识', enabled: true },
+      { id: 'p2', key: 'request_id', value: '{{$guid}}', description: '动态 UUID', enabled: true },
     ],
     headers: [
-      { id: 'h1', key: 'Accept', value: 'application/json', description: '标准 JSON 响应', enabled: true },
-      { id: 'h2', key: 'X-Client-Platform', value: '{{client_id}}', description: '多端平台头标识', enabled: true },
+      { id: 'h1', key: 'Accept', value: 'application/json', description: 'JSON 响应格式', enabled: true },
     ],
     auth: {
-      type: 'bearer',
-      bearerToken: '{{auth_token}}',
+      type: 'none',
     },
     body: {
       type: 'none',
@@ -360,18 +352,16 @@ export const INITIAL_REQUESTS: ApiRequestItem[] = [
     },
     assertions: [
       { id: 'a1', enabled: true, type: 'status_eq', target: 'status', expected: '200' },
-      { id: 'a2', enabled: true, type: 'time_lt', target: 'responseTime', expected: '500' },
-      { id: 'a3', enabled: true, type: 'json_path_eq', target: 'ok', expected: 'true' },
-      { id: 'a4', enabled: true, type: 'json_path_exists', target: 'data.0.name', expected: 'exists' },
+      { id: 'a2', enabled: true, type: 'json_path_eq', target: 'args.client', expected: 'openPost' },
     ],
-    description: '获取本地沙箱中的多平台核心开发者列表，验证 Query 参数、Bearer 令牌与 JSONPath 断言。',
+    description: '发送真实 GET 请求至 https://httpbin.org/get，检验 Query 参数解析、请求头回显与状态码断言。',
   },
   {
-    id: 'req_local_auth',
-    name: '签发本地 JWT 令牌 (自动写入环境变量)',
-    folderId: 'folder_local_sandbox',
+    id: 'req_httpbin_post',
+    name: 'POST JSON 报文回显测试 (HTTPBin)',
+    folderId: 'folder_http_inspector',
     method: 'POST',
-    url: '{{baseUrl}}/auth/token',
+    url: '{{httpbinUrl}}/post',
     params: [],
     headers: [
       { id: 'h10', key: 'Content-Type', value: 'application/json', description: 'JSON 载荷', enabled: true },
@@ -383,10 +373,9 @@ export const INITIAL_REQUESTS: ApiRequestItem[] = [
       type: 'json',
       json: JSON.stringify(
         {
-          clientId: '{{client_id}}',
-          scope: 'read:apis write:collections offline_access',
-          grantType: 'client_credentials',
+          service: 'openPost',
           timestamp: '{{$timestamp}}',
+          traceId: '{{$guid}}',
         },
         null,
         2
@@ -398,44 +387,27 @@ export const INITIAL_REQUESTS: ApiRequestItem[] = [
       graphqlVariables: '{}',
     },
     assertions: [
-      { id: 'a10', enabled: true, type: 'status_eq', target: 'status', expected: '201' },
-      { id: 'a11', enabled: true, type: 'json_path_exists', target: 'access_token', expected: 'exists' },
-      { id: 'a12', enabled: true, type: 'extract_env', target: 'access_token', expected: 'auth_token' },
+      { id: 'a10', enabled: true, type: 'status_eq', target: 'status', expected: '200' },
+      { id: 'a11', enabled: true, type: 'json_path_eq', target: 'json.service', expected: 'openPost' },
     ],
-    description: '发送凭证签发本地 JWT Token，并通过断言规则自动提取 access_token 更新到当前环境的 {{auth_token}} 变量中。',
+    description: '向 https://httpbin.org/post 发送真实 JSON 请求体并验证服务端解析结果。',
   },
   {
-    id: 'req_local_echo',
-    name: '全量请求报文回显 (Echo 调试器)',
-    folderId: 'folder_local_sandbox',
-    method: 'POST',
-    url: '{{baseUrl}}/echo',
-    params: [
-      { id: 'pe1', key: 'debug', value: 'true', description: '开启详细回显', enabled: true },
-      { id: 'pe2', key: 'trace_id', value: '{{$guid}}', description: '动态生成 UUID', enabled: true },
-    ],
+    id: 'req_rest_posts',
+    name: 'REST 资源详情查询 (JSONPlaceholder)',
+    folderId: 'folder_http_inspector',
+    method: 'GET',
+    url: '{{restApiUrl}}/posts/1',
+    params: [],
     headers: [
-      { id: 'he1', key: 'Content-Type', value: 'application/json', description: '', enabled: true },
-      { id: 'he2', key: 'X-Zero-Backdoor', value: 'Verified-100%-Local', description: '自定义安全头测试', enabled: true },
+      { id: 'hr1', key: 'Accept', value: 'application/json', description: '', enabled: true },
     ],
     auth: {
-      type: 'apikey',
-      apiKeyName: 'X-API-Key',
-      apiKeyValue: 'zp_key_{{$randomInt}}',
-      apiKeyIn: 'header',
+      type: 'none',
     },
     body: {
-      type: 'json',
-      json: JSON.stringify(
-        {
-          action: 'verify_payload',
-          osTargets: ['Windows 11 x64', 'macOS Sequoia arm64', 'Linux AppImage x86_64'],
-          privacyMode: 'strict_offline_vault',
-          requestId: '{{$guid}}',
-        },
-        null,
-        2
-      ),
+      type: 'none',
+      json: '',
       raw: '',
       formData: [],
       urlencoded: [],
@@ -443,34 +415,33 @@ export const INITIAL_REQUESTS: ApiRequestItem[] = [
       graphqlVariables: '{}',
     },
     assertions: [
-      { id: 'ae1', enabled: true, type: 'status_eq', target: 'status', expected: '200' },
-      { id: 'ae2', enabled: true, type: 'json_path_eq', target: 'body.privacyMode', expected: 'strict_offline_vault' },
+      { id: 'ar1', enabled: true, type: 'status_eq', target: 'status', expected: '200' },
+      { id: 'ar2', enabled: true, type: 'json_path_eq', target: 'id', expected: '1' },
     ],
-    description: '原样返回客户端发送的 Method、Query、Headers、Body 及动态内置变量（{{$guid}}、{{$timestamp}}）。',
+    description: '查询 https://jsonplaceholder.typicode.com/posts/1 真实 REST 资源。',
   },
   {
-    id: 'req_ai_completion',
-    name: '本地 AI 推理接口联调 (OpenAI / DeepSeek 兼容)',
-    folderId: 'folder_ai_endpoints',
+    id: 'req_openai_compat',
+    name: 'Chat Completions 接口调试 (OpenAI / Ollama)',
+    folderId: 'folder_local_services',
     method: 'POST',
-    url: '{{baseUrl}}/ai/completions',
+    url: 'http://127.0.0.1:11434/v1/chat/completions',
     params: [],
     headers: [
       { id: 'hai1', key: 'Content-Type', value: 'application/json', enabled: true },
     ],
     auth: {
       type: 'bearer',
-      bearerToken: '{{auth_token}}',
+      bearerToken: '{{apiKey}}',
     },
     body: {
       type: 'json',
       json: JSON.stringify(
         {
-          model: '{{ai_model}}',
-          temperature: 0.2,
+          model: 'qwen2.5-coder:7b',
+          stream: false,
           messages: [
-            { role: 'system', content: 'You are a local-first API security auditor.' },
-            { role: 'user', content: 'Verify that this request is processed with zero cloud telemetry.' },
+            { role: 'user', content: 'ping' },
           ],
         },
         null,
@@ -484,37 +455,8 @@ export const INITIAL_REQUESTS: ApiRequestItem[] = [
     },
     assertions: [
       { id: 'aai1', enabled: true, type: 'status_eq', target: 'status', expected: '200' },
-      { id: 'aai2', enabled: true, type: 'json_path_eq', target: 'authenticated', expected: 'true' },
     ],
-    description: '模拟调试本地 Ollama / vLLM / DeepSeek / Claude 兼容格式的 `/v1/chat/completions` 接口。',
-  },
-  {
-    id: 'req_public_httpbin',
-    name: 'HTTPBin 公网 GET 联调 (跨源代理)',
-    folderId: 'folder_public_http',
-    method: 'GET',
-    url: 'https://httpbin.org/get',
-    params: [
-      { id: 'pub1', key: 'client', value: 'ZeroPost', enabled: true },
-    ],
-    headers: [
-      { id: 'pubh1', key: 'Accept', value: 'application/json', enabled: true },
-    ],
-    auth: {
-      type: 'none',
-    },
-    body: {
-      type: 'none',
-      json: '',
-      raw: '',
-      formData: [],
-      urlencoded: [],
-      graphqlQuery: '',
-      graphqlVariables: '{}',
-    },
-    assertions: [
-      { id: 'apub1', enabled: true, type: 'status_eq', target: 'status', expected: '200' },
-    ],
-    description: '通过本地 Node 代理引擎直接访问外网 https://httpbin.org/get，彻底绕过浏览器 CORS 限制。',
+    description: '直连本地 Ollama (127.0.0.1:11434) 或兼容 OpenAI 格式的推理服务端点。',
   },
 ];
+

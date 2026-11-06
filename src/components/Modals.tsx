@@ -103,9 +103,9 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
   const [cleanOldDir, setCleanOldDir] = useState(true);
   const [autoSyncToDisk, setAutoSyncToDisk] = useState(true);
   const [diskStats, setDiskStats] = useState<{ fileCount: number; totalBytes: number; files: string[] }>({
-    fileCount: 4,
-    totalBytes: 18420,
-    files: ['collections_folders.json', 'collections_requests.json', 'environments.json', 'history.json'],
+    fileCount: 0,
+    totalBytes: 0,
+    files: [],
   });
   const [storageStatusMsg, setStorageStatusMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [syncingDisk, setSyncingDisk] = useState(false);

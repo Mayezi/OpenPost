@@ -665,15 +665,11 @@ export default function App() {
             style={{ borderColor: 'var(--zp-border-subtle)' }}
             title="点击展开/收起侧边栏"
           >
-            <div
-              className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 font-mono-tabular font-bold text-[11px]"
-              style={{
-                backgroundColor: 'var(--zp-accent)',
-                color: 'var(--zp-accent-fg)',
-              }}
-            >
-              OP
-            </div>
+            <img
+              src="/icons/openpost_icon_pack/png/transparent/openpost-64-transparent.png"
+              alt="openPost"
+              className="w-6 h-6 object-contain shrink-0"
+            />
             <span className="text-sm font-bold tracking-tight font-display whitespace-nowrap shrink-0">
               openPost
             </span>

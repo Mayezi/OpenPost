@@ -171,16 +171,11 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   if (!response) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center h-full zp-surface-transition">
-        <div
-          className="w-11 h-11 rounded-2xl flex items-center justify-center mb-3 border zp-surface-transition"
-          style={{
-            backgroundColor: 'var(--zp-bg-surface)',
-            borderColor: 'var(--zp-border)',
-            color: 'var(--zp-accent)',
-          }}
-        >
-          <Terminal className="w-5 h-5" />
-        </div>
+        <img
+          src="/icons/openpost_icon_pack/png/transparent/openpost-128-transparent.png"
+          alt="openPost"
+          className="w-12 h-12 object-contain mb-3"
+        />
         <p className="text-sm font-semibold font-display mb-1" style={{ color: 'var(--zp-text-primary)' }}>
           准备就绪 · 等待发送请求
         </p>

@@ -1,4 +1,8 @@
-# openPost (`OP`)
+<p align="left">
+  <img src="public/icons/openpost_icon_pack/png/transparent/openpost-128-transparent.png" width="76" height="76" alt="openPost Logo" />
+</p>
+
+# openPost
 
 > **100% 纯本地运行 · 免登录 · 零后门 · 支持自定义磁盘目录的跨平台 API 调试与自动化测试工作台**  
 > A 100% Local-First, Zero-Login, Zero-Telemetry Postman Alternative for **Windows**, **macOS**, and **Linux**.

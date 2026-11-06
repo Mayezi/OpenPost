@@ -57,7 +57,7 @@ jobs:
         include:
           - os: windows-latest
             target_os: windows
-            label: Windows x64 (.exe Setup & Portable)
+            label: Windows x64 (Setup.exe Installer)
             artifact_name: openPost-Windows-x64-Installer
           - os: macos-latest
             target_os: macos
@@ -96,36 +96,65 @@ jobs:
       - name: Compile Standalone Rust Native Desktop Binary (tao + wry WebView)
         run: cargo build --release --manifest-path rust-desktop/Cargo.toml
 
-      - name: Build Windows Native Setup.exe & Portable.exe (No Zip)
+      - name: Build Windows Native Setup.exe Installer Wizard (NSIS)
         if: matrix.target_os == 'windows'
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path "release-dist" | Out-Null
-          Copy-Item "rust-desktop/target/release/openPost.exe" -Destination "release-dist/openPost-Windows-x64-Portable.exe"
 
           $icoPath = (Resolve-Path "public/icons/openpost_icon_pack/platform/windows/openpost.ico").Path
           $exePath = (Resolve-Path "rust-desktop/target/release/openPost.exe").Path
           $outSetup = Join-Path (Resolve-Path "release-dist").Path "openPost-Windows-x64-Setup.exe"
 
           $nsiContent = @"
+          Unicode True
           !include "MUI2.nsh"
+
           Name "openPost"
           OutFile "$outSetup"
           InstallDir "`$LOCALAPPDATA\Programs\openPost"
+          InstallDirRegKey HKCU "Software\openPost" "Install_Dir"
           RequestExecutionLevel user
+          BrandingText "openPost v2.0.0 Native Rust Desktop Engine"
+
           !define MUI_ICON "$icoPath"
           !define MUI_UNICON "$icoPath"
+          !define MUI_ABORTWARNING
+          !define MUI_FINISHPAGE_RUN "`$INSTDIR\openPost.exe"
+          !define MUI_FINISHPAGE_RUN_TEXT "立即启动 openPost"
+
+          !insertmacro MUI_PAGE_WELCOME
           !insertmacro MUI_PAGE_DIRECTORY
           !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_PAGE_FINISH
+
+          !insertmacro MUI_UNPAGE_CONFIRM
+          !insertmacro MUI_UNPAGE_INSTFILES
+
           !insertmacro MUI_LANGUAGE "SimpChinese"
 
-          Section "Install"
+          Section "openPost 主程序 (必选)" SecMain
+            SectionIn RO
             SetOutPath "`$INSTDIR"
             File "/oname=openPost.exe" "$exePath"
             File "/oname=openpost.ico" "$icoPath"
+
+            WriteRegStr HKCU "Software\openPost" "Install_Dir" "`$INSTDIR"
             WriteUninstaller "`$INSTDIR\Uninstall.exe"
+
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "DisplayName" "openPost - Local-First API Studio"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "DisplayVersion" "2.0.0"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "Publisher" "openPost Contributors"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "DisplayIcon" "`$INSTDIR\openPost.exe"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "InstallLocation" "`$INSTDIR"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "UninstallString" '"`$INSTDIR\Uninstall.exe"'
+            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "NoModify" 1
+            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "NoRepair" 1
+
             CreateDirectory "`$SMPROGRAMS\openPost"
             CreateShortCut "`$SMPROGRAMS\openPost\openPost.lnk" "`$INSTDIR\openPost.exe" "" "`$INSTDIR\openpost.ico"
+            CreateShortCut "`$SMPROGRAMS\openPost\卸载 openPost.lnk" "`$INSTDIR\Uninstall.exe" "" "`$INSTDIR\openpost.ico"
             CreateShortCut "`$DESKTOP\openPost.lnk" "`$INSTDIR\openPost.exe" "" "`$INSTDIR\openpost.ico"
           SectionEnd
 
@@ -134,17 +163,31 @@ jobs:
             Delete "`$INSTDIR\openpost.ico"
             Delete "`$INSTDIR\Uninstall.exe"
             Delete "`$SMPROGRAMS\openPost\openPost.lnk"
+            Delete "`$SMPROGRAMS\openPost\卸载 openPost.lnk"
             Delete "`$DESKTOP\openPost.lnk"
             RMDir "`$SMPROGRAMS\openPost"
             RMDir "`$INSTDIR"
+            DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost"
+            DeleteRegKey HKCU "Software\openPost"
           SectionEnd
           "@
 
-          Set-Content -Path "installer.nsi" -Value $nsiContent -Encoding UTF8
+          $nsiFile = Join-Path $PWD.Path "installer.nsi"
+          [System.IO.File]::WriteAllText($nsiFile, $nsiContent, [System.Text.UTF8Encoding]::new($true))
+
+          $makensisExe = $null
           if (Get-Command makensis -ErrorAction SilentlyContinue) {
-            makensis installer.nsi
+            $makensisExe = (Get-Command makensis).Source
           } elseif (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe") {
-            & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+            $makensisExe = "C:\Program Files (x86)\NSIS\makensis.exe"
+          } else {
+            choco install nsis -y
+            $makensisExe = "C:\Program Files (x86)\NSIS\makensis.exe"
+          }
+
+          & $makensisExe $nsiFile
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outSetup)) {
+            throw "Failed to build Windows NSIS Setup Installer ($outSetup)"
           }
 
       - name: Build macOS Native .dmg Installer (No Zip)
@@ -247,10 +290,10 @@ jobs:
             REL_TAG="v2.0.0"
           fi
           gh release view "$REL_TAG" >/dev/null 2>&1 || gh release create "$REL_TAG" --title "openPost $REL_TAG (Native Desktop Installers)" --notes "直接点击下方对应的原生安装包即可下载安装（基于 tao + wry 原生桌面窗口架构，无需解压）：
-          - **Windows 安装版**: \`openPost-Windows-x64-Setup.exe\`
-          - **Windows 单文件免安装版**: \`openPost-Windows-x64-Portable.exe\`
+          - **Windows 安装向导版 (NSIS Setup)**: \`openPost-Windows-x64-Setup.exe\`
           - **macOS 原生镜像安装包**: \`openPost-macOS-Universal.dmg\`
           - **Linux 原生安装包**: \`openPost-Linux-amd64.deb\`"
+          gh release delete-asset "$REL_TAG" "openPost-Windows-x64-Portable.exe" -y >/dev/null 2>&1 || true
           gh release upload "$REL_TAG" release-dist/* --clobber
 
           echo "### 📦 原生独立安装包直链下载（无需解压 .zip）" >> $GITHUB_STEP_SUMMARY

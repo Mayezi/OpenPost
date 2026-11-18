@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, CheckSquare, Square, Code2, Table2 } from 'lucide-react';
+import { Plus, Trash2, Code2, Table2 } from 'lucide-react';
 import { KeyValueItem } from '../types/api';
+import { UiCheckbox } from './UiControls';
 
 interface KeyValueTableProps {
   items: KeyValueItem[];
@@ -80,8 +81,10 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
     onChange(items.filter((item) => item.id !== id));
   };
 
+  const allEnabled = items.length > 0 && items.every((i) => i.enabled);
+  const someEnabled = items.some((i) => i.enabled) && !allEnabled;
+
   const handleToggleAll = () => {
-    const allEnabled = items.length > 0 && items.every((i) => i.enabled);
     onChange(items.map((i) => ({ ...i, enabled: !allEnabled })));
   };
 
@@ -90,15 +93,12 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div
-        className="flex items-center justify-between px-4 py-2 border-b text-xs"
-        style={{ borderColor: 'var(--zp-border-subtle)' }}
-      >
-        <div className="flex items-center gap-2.5">
+      <div className="flex items-center justify-between px-4 py-2 text-xs">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleAddRow}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0 hover:opacity-90"
+            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-[6px] font-medium transition-opacity whitespace-nowrap shrink-0 hover:opacity-90"
             style={{
               backgroundColor: 'var(--zp-accent-soft)',
               color: 'var(--zp-accent)',
@@ -111,13 +111,13 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
             <button
               type="button"
               onClick={handleToggleAll}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border transition-colors whitespace-nowrap shrink-0 hover:opacity-80"
+              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] border transition-colors whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
               style={{
-                borderColor: 'var(--zp-border)',
+                borderColor: 'var(--zp-border-subtle)',
                 color: 'var(--zp-text-secondary)',
               }}
             >
-              <span>全选 / 取消</span>
+              <span>{allEnabled ? '全部取消' : '全部启用'}</span>
             </button>
           )}
         </div>
@@ -125,10 +125,10 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
         <button
           type="button"
           onClick={handleToggleBulk}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap shrink-0 hover:opacity-85"
+          className="inline-flex items-center gap-1.5 h-7 px-3 rounded-[6px] border transition-colors whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
           style={{
-            borderColor: 'var(--zp-border)',
-            color: 'var(--zp-text-secondary)',
+            borderColor: 'var(--zp-border-subtle)',
+            color: bulkMode ? 'var(--zp-text-primary)' : 'var(--zp-text-secondary)',
             backgroundColor: bulkMode ? 'var(--zp-bg-elevated)' : 'transparent',
           }}
         >
@@ -165,7 +165,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
             value={bulkText}
             onChange={(e) => setBulkText(e.target.value)}
             placeholder={'Accept: application/json\nX-Trace-Id: {{$guid}}\n# Disabled-Key: value'}
-            className="flex-1 w-full p-3.5 rounded-xl border font-mono-tabular text-xs resize-none focus:outline-none"
+            className="flex-1 w-full p-3.5 rounded-[8px] border font-mono-tabular text-xs resize-none focus:outline-none focus:border-[var(--zp-accent)]"
             style={{
               backgroundColor: 'var(--zp-bg-input)',
               borderColor: 'var(--zp-border)',
@@ -182,7 +182,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
           <button
             type="button"
             onClick={handleAddRow}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 hover:opacity-85"
+            className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-[6px] text-xs font-medium border transition-colors whitespace-nowrap shrink-0 hover:opacity-85"
             style={{
               borderColor: 'var(--zp-border)',
               color: 'var(--zp-text-primary)',
@@ -198,14 +198,23 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
           <table className="w-full border-collapse text-left text-xs">
             <thead>
               <tr
-                className="border-b"
+                className="border-y"
                 style={{
-                  borderColor: 'var(--zp-border)',
+                  borderColor: 'var(--zp-border-subtle)',
                   backgroundColor: 'var(--zp-bg-surface)',
                   color: 'var(--zp-text-muted)',
                 }}
               >
-                <th className="w-10 py-2 text-center font-medium">启用</th>
+                <th className="w-10 py-2 text-center font-medium">
+                  <div className="inline-flex items-center justify-center">
+                    <UiCheckbox
+                      checked={allEnabled}
+                      indeterminate={someEnabled}
+                      onChange={handleToggleAll}
+                      title={allEnabled ? '全部禁用' : '全部启用'}
+                    />
+                  </div>
+                </th>
                 <th
                   className="w-[32%] py-2 px-3 font-medium border-l"
                   style={{ borderColor: 'var(--zp-border-subtle)' }}
@@ -239,23 +248,17 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                   className="border-b transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
                   style={{
                     borderColor: 'var(--zp-border-subtle)',
-                    opacity: item.enabled ? 1 : 0.5,
+                    opacity: item.enabled ? 1 : 0.55,
                   }}
                 >
                   <td className="py-1.5 text-center">
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateRow(item.id, { enabled: !item.enabled })}
-                      className="inline-flex items-center justify-center p-1 rounded-lg hover:opacity-80"
-                      style={{ color: item.enabled ? 'var(--zp-accent)' : 'var(--zp-text-muted)' }}
-                      title={item.enabled ? '点击禁用此参数' : '点击启用此参数'}
-                    >
-                      {item.enabled ? (
-                        <CheckSquare className="w-4 h-4" />
-                      ) : (
-                        <Square className="w-4 h-4" />
-                      )}
-                    </button>
+                    <div className="inline-flex items-center justify-center">
+                      <UiCheckbox
+                        checked={item.enabled}
+                        onChange={(next) => handleUpdateRow(item.id, { enabled: next })}
+                        title={item.enabled ? '点击禁用此参数' : '点击启用此参数'}
+                      />
+                    </div>
                   </td>
                   <td
                     className="p-0 border-l"
@@ -298,13 +301,13 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                     />
                   </td>
                   <td
-                    className="py-1.5 text-center border-l"
+                    className="py-1 text-center border-l"
                     style={{ borderColor: 'var(--zp-border-subtle)' }}
                   >
                     <button
                       type="button"
                       onClick={() => handleDeleteRow(item.id)}
-                      className="inline-flex items-center justify-center p-1 rounded-lg hover:text-rose-500 transition-colors"
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-[6px] hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
                       style={{ color: 'var(--zp-text-muted)' }}
                       title="删除行"
                     >

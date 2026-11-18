@@ -14,8 +14,6 @@ import {
   Layers,
   SlidersHorizontal,
   Code2,
-  CheckSquare,
-  Square,
   Wand2,
   X,
   Settings,
@@ -65,6 +63,7 @@ import { KeyValueTable } from './components/KeyValueTable';
 import { ResponseViewer } from './components/ResponseViewer';
 import { CustomSelect } from './components/CustomSelect';
 import { AuthPanel } from './components/AuthPanel';
+import { SegmentedControl, UiCheckbox } from './components/UiControls';
 import {
   EnvironmentModal,
   ImportExportModal,
@@ -163,7 +162,7 @@ export default function App() {
   });
 
   const [customStoragePath, setCustomStoragePath] = useState<string>(() => {
-    return localStorage.getItem(STORAGE_KEYS.CUSTOM_DIR) || 'D:\\openPost_Data\\Vault';
+    return localStorage.getItem(STORAGE_KEYS.CUSTOM_DIR) || 'D:\\OpenPost_Data\\Vault';
   });
 
   const [folders, setFolders] = useState<CollectionFolder[]>(() => {
@@ -241,7 +240,7 @@ export default function App() {
 
   // Modals & Response Layout State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTabId>('themes');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTabId>('general');
   const [isEnvModalOpen, setIsEnvModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [responseExpanded, setResponseExpanded] = useState(false);
@@ -950,16 +949,16 @@ export default function App() {
           <button
             type="button"
             onClick={() => setSidebarCollapsed((prev) => !prev)}
-            className="flex items-center gap-2 pr-1.5 hover:opacity-85 transition-opacity"
+            className="flex items-center gap-2 px-1.5 py-1 rounded-[6px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
             title="点击展开/收起侧边栏"
           >
             <img
               src="/icons/openpost_icon_pack/png/transparent/openpost-64-transparent.png"
-              alt="openPost"
+              alt="OpenPost"
               className="w-5 h-5 object-contain shrink-0"
             />
             <span className="text-sm font-bold tracking-tight font-display whitespace-nowrap shrink-0">
-              openPost
+              OpenPost
             </span>
           </button>
 
@@ -967,7 +966,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsImportModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 h-7 px-2 rounded-[6px] text-xs font-medium zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
             style={{ color: 'var(--zp-text-secondary)' }}
           >
             <FolderSync className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
@@ -994,7 +993,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleToggleLightDark}
-              className="w-7 h-7 rounded-lg inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
+              className="w-7 h-7 rounded-[6px] inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
               style={{ color: 'var(--zp-text-secondary)' }}
               title={`切换浅色 / 深色主题（当前：${currentTheme.name}）`}
             >
@@ -1009,7 +1008,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => openSettingsAt('network')}
-              className="relative w-7 h-7 rounded-lg inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
+              className="relative w-7 h-7 rounded-[6px] inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
               style={{
                 color:
                   proxySummary && proxySummary.mode !== 'none'
@@ -1036,10 +1035,10 @@ export default function App() {
             {/* ICON-ONLY SETTINGS BUTTON */}
             <button
               type="button"
-              onClick={() => openSettingsAt('themes')}
-              className="w-7 h-7 rounded-lg inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => openSettingsAt('general')}
+              className="w-7 h-7 rounded-[6px] inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
               style={{ color: 'var(--zp-text-secondary)' }}
-              title="偏好设置 (外观与字号 / 本地数据目录 / 网络代理)"
+              title="偏好设置"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
@@ -1074,7 +1073,7 @@ export default function App() {
               onClick={() => sendDesktopWindowCmd('close')}
               className="h-full w-11 inline-flex items-center justify-center transition-colors hover:bg-[#E81123] hover:text-white"
               style={{ color: 'var(--zp-text-secondary)' }}
-              title="关闭 openPost"
+              title="关闭 OpenPost"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1100,9 +1099,9 @@ export default function App() {
                 borderColor: 'var(--zp-border-subtle)',
               }}
             >
-              {/* Sidebar Mode Switcher with Unified Rounded-lg Sliding Pill (h-10 aligned with right tab row) */}
+              {/* Sidebar Mode Switcher: Flat Underline Tabs Aligned with Right Tab Bar (h-10) */}
               <div
-                className="grid grid-cols-2 gap-1 h-10 px-2 items-center border-b text-xs shrink-0"
+                className="grid grid-cols-2 h-10 px-2 border-b text-xs shrink-0"
                 style={{ borderColor: 'var(--zp-border-subtle)' }}
               >
                 {(
@@ -1125,44 +1124,38 @@ export default function App() {
                       key={tab.id}
                       type="button"
                       onClick={() => setSidebarMode(tab.id)}
-                      className="relative inline-flex items-center justify-center gap-1.5 h-7 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0"
+                      className="relative inline-flex items-center justify-center gap-1.5 h-full font-medium transition-colors whitespace-nowrap shrink-0 hover:opacity-90"
                       style={{
                         color: active ? 'var(--zp-text-primary)' : 'var(--zp-text-secondary)',
                       }}
                     >
-                      {active && (
-                        <motion.div
-                          layoutId="sidebar-mode-pill"
-                          transition={{ type: 'spring', stiffness: 440, damping: 34 }}
-                          className="absolute inset-0 rounded-lg border"
-                          style={{
-                            backgroundColor: 'var(--zp-bg-elevated)',
-                            borderColor: 'var(--zp-border)',
-                          }}
-                        />
-                      )}
                       <span
-                        className="relative z-10"
+                        className="shrink-0"
                         style={{ color: active ? 'var(--zp-accent)' : 'currentColor' }}
                       >
                         {tab.icon}
                       </span>
-                      <span className="relative z-10">{tab.label}</span>
+                      <span>{tab.label}</span>
+                      {active && (
+                        <motion.span
+                          layoutId="sidebar-mode-underline"
+                          transition={{ type: 'spring', stiffness: 460, damping: 34 }}
+                          className="absolute bottom-0 left-2 right-2 h-[2px]"
+                          style={{ backgroundColor: 'var(--zp-accent)' }}
+                        />
+                      )}
                     </button>
                   );
                 })}
               </div>
 
-              {/* Search & Compact Folder Creation Row */}
-              <div
-                className="p-2.5 border-b flex items-center gap-1.5"
-                style={{ borderColor: 'var(--zp-border-subtle)' }}
-              >
+              {/* Search & Compact Folder Creation Row (Borderless Separation) */}
+              <div className="px-2.5 pt-2.5 pb-1.5 flex items-center gap-1.5">
                 <div
-                  className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs zp-surface-transition min-w-0"
+                  className="flex-1 flex items-center gap-2 h-8 px-2.5 rounded-[6px] border text-xs zp-surface-transition min-w-0 focus-within:border-[var(--zp-accent)]"
                   style={{
                     backgroundColor: 'var(--zp-bg-input)',
-                    borderColor: 'var(--zp-border)',
+                    borderColor: 'var(--zp-border-subtle)',
                   }}
                 >
                   <Search
@@ -1192,7 +1185,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleCreateFolder}
-                    className="inline-flex items-center justify-center w-8 h-8 rounded-lg zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
+                    className="inline-flex items-center justify-center w-8 h-8 rounded-[6px] zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
                     style={{ color: 'var(--zp-text-secondary)' }}
                     title="新建目录"
                   >
@@ -1206,7 +1199,7 @@ export default function App() {
                 {sidebarMode === 'collections' ? (
                   folders.length === 0 ? (
                     <div
-                      className="p-4 text-center text-xs rounded-lg border border-dashed"
+                      className="p-4 text-center text-xs rounded-[8px] border border-dashed"
                       style={{
                         borderColor: 'var(--zp-border)',
                         color: 'var(--zp-text-muted)',
@@ -1216,7 +1209,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={handleCreateFolder}
-                        className="px-2.5 py-1 rounded-md border text-xs font-medium hover:opacity-90"
+                        className="h-7 px-2.5 rounded-[6px] border text-xs font-medium hover:opacity-90"
                         style={{
                           borderColor: 'var(--zp-border)',
                           backgroundColor: 'var(--zp-accent-soft)',
@@ -1284,13 +1277,13 @@ export default function App() {
                               e.dataTransfer.effectAllowed = 'move';
                             }}
                             onDragEnd={handleClearDrag}
-                            className="flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-xs font-semibold group transition-colors hover:bg-black/5 dark:hover:bg-white/5 border"
+                            className="relative flex items-center h-8 px-2 rounded-[6px] cursor-pointer text-xs font-semibold group transition-colors hover:bg-[var(--zp-bg-elevated)]"
                             style={{
                               color: 'var(--zp-text-secondary)',
-                              borderColor:
+                              boxShadow:
                                 isFolderDropTarget && dropIndicator?.position === 'inside'
-                                  ? 'var(--zp-accent)'
-                                  : 'transparent',
+                                  ? 'inset 0 0 0 1px var(--zp-accent)'
+                                  : undefined,
                               backgroundColor:
                                 isFolderDropTarget && dropIndicator?.position === 'inside'
                                   ? 'var(--zp-accent-soft)'
@@ -1306,7 +1299,7 @@ export default function App() {
                             }}
                             onDoubleClick={(e) => handleStartRenameFolder(folder, e)}
                           >
-                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-6">
                               <motion.span
                                 animate={{ rotate: isExpanded ? 90 : 0 }}
                                 transition={{ duration: 0.16 }}
@@ -1343,7 +1336,7 @@ export default function App() {
                                       setEditingFolderName('');
                                     }
                                   }}
-                                  className="w-full px-1.5 py-0.5 rounded border text-xs font-medium outline-none"
+                                  className="w-full h-6 px-1.5 rounded-[4px] border text-xs font-medium outline-none"
                                   style={{
                                     backgroundColor: 'var(--zp-bg-canvas)',
                                     borderColor: 'var(--zp-accent)',
@@ -1361,46 +1354,63 @@ export default function App() {
                             </div>
 
                             {!isEditingFolder && (
-                              <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                              <>
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleCreateNewRequest(folder.id);
                                   }}
-                                  className="opacity-60 hover:opacity-100 p-1 rounded-md"
+                                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 inline-flex items-center justify-center rounded-[4px] opacity-55 group-hover:opacity-0 group-hover:pointer-events-none transition-opacity"
                                   title="在此集合下新建接口"
                                 >
                                   <Plus className="w-3.5 h-3.5" />
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleStartRenameFolder(folder, e)}
-                                  className="opacity-0 group-hover:opacity-75 hover:!opacity-100 p-1 rounded-md transition-opacity"
-                                  title="重命名此集合"
+
+                                <div
+                                  className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-1.5 rounded-[4px] opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+                                  style={{ backgroundColor: 'var(--zp-bg-elevated)' }}
                                 >
-                                  <Pencil className="w-3 h-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setConfirmDeleteFolderId(
-                                      isConfirmingDelete ? null : folder.id
-                                    );
-                                  }}
-                                  className="opacity-0 group-hover:opacity-75 hover:!opacity-100 hover:text-rose-500 p-1 rounded-md transition-opacity"
-                                  title="删除此集合"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCreateNewRequest(folder.id);
+                                    }}
+                                    className="w-6 h-6 inline-flex items-center justify-center rounded-[4px] opacity-75 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5"
+                                    title="在此集合下新建接口"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleStartRenameFolder(folder, e)}
+                                    className="w-6 h-6 inline-flex items-center justify-center rounded-[4px] opacity-75 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5"
+                                    title="重命名此集合"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setConfirmDeleteFolderId(
+                                        isConfirmingDelete ? null : folder.id
+                                      );
+                                    }}
+                                    className="w-6 h-6 inline-flex items-center justify-center rounded-[4px] opacity-75 hover:opacity-100 hover:text-rose-500 hover:bg-black/5 dark:hover:bg-white/5"
+                                    title="删除此集合"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </>
                             )}
                           </div>
 
                           {isConfirmingDelete && (
                             <div
-                              className="mx-2 my-1 p-2 rounded-lg border text-[11px] flex items-center justify-between gap-2"
+                              className="mx-2 my-1 p-2 rounded-[8px] border text-[11px] flex items-center justify-between gap-2"
                               style={{
                                 backgroundColor: 'var(--zp-bg-elevated)',
                                 borderColor: 'var(--zp-border)',
@@ -1415,14 +1425,14 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={(e) => handleDeleteFolder(folder.id, e)}
-                                  className="px-2 py-0.5 rounded bg-rose-500 text-white font-semibold hover:bg-rose-600"
+                                  className="h-6 px-2 rounded-[6px] bg-rose-500 text-white font-semibold hover:bg-rose-600"
                                 >
                                   删除
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setConfirmDeleteFolderId(null)}
-                                  className="px-2 py-0.5 rounded border hover:opacity-80"
+                                  className="h-6 px-2 rounded-[6px] border hover:opacity-80"
                                   style={{ borderColor: 'var(--zp-border)' }}
                                 >
                                   取消
@@ -1438,18 +1448,29 @@ export default function App() {
                                 animate={{ height: 'auto', opacity: 1 }}
                                 exit={{ height: 0, opacity: 0 }}
                                 transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                                className="overflow-hidden pl-3.5 space-y-0.5"
+                                className="relative overflow-hidden pl-[35px] space-y-0.5 pt-0.5"
                               >
                                 {folderReqs.length === 0 ? (
-                                  <p
-                                    className="px-2.5 py-1.5 text-xs italic"
-                                    style={{ color: 'var(--zp-text-muted)' }}
-                                  >
-                                    暂无接口（可将其他接口拖入此目录）
-                                  </p>
+                                  <div className="relative flex items-center h-7">
+                                    <span
+                                      aria-hidden="true"
+                                      className="pointer-events-none absolute left-0 top-0 h-3.5 w-2.5 border-l border-b border-dashed"
+                                      style={{
+                                        borderColor: 'var(--zp-border)',
+                                        opacity: 0.5,
+                                      }}
+                                    />
+                                    <p
+                                      className="ml-2.5 px-2 text-xs italic"
+                                      style={{ color: 'var(--zp-text-muted)' }}
+                                    >
+                                      暂无接口（可拖入）
+                                    </p>
+                                  </div>
                                 ) : (
-                                  folderReqs.map((req) => {
+                                  folderReqs.map((req, reqIdx) => {
                                     const isSelected = req.id === activeRequest?.id;
+                                    const isLastReq = reqIdx === folderReqs.length - 1;
                                     const mStyle = METHOD_COLORS[req.method] || METHOD_COLORS.GET;
                                     const isEditingReq = editingSidebarReqId === req.id;
                                     const isReqDropTarget =
@@ -1484,10 +1505,33 @@ export default function App() {
                                           );
                                         }}
                                       >
+                                        {/* Dashed Vertical Trunk Aligned to Folder Icon Center */}
+                                        <span
+                                          aria-hidden="true"
+                                          className={`pointer-events-none absolute left-0 border-l border-dashed ${
+                                            isLastReq ? 'top-0 h-4' : '-top-0.5 -bottom-0.5'
+                                          }`}
+                                          style={{
+                                            borderColor: 'var(--zp-border)',
+                                            opacity: 0.5,
+                                          }}
+                                        />
+                                        {/* Dashed Horizontal Branch Tick */}
+                                        <span
+                                          aria-hidden="true"
+                                          className="pointer-events-none absolute left-0 top-4 w-2 border-t border-dashed transition-colors"
+                                          style={{
+                                            borderColor: isSelected
+                                              ? 'var(--zp-accent)'
+                                              : 'var(--zp-border)',
+                                            opacity: isSelected ? 0.75 : 0.5,
+                                          }}
+                                        />
+
                                         {isReqDropTarget &&
                                           dropIndicator?.position === 'before' && (
                                             <div
-                                              className="h-0.5 rounded-full mx-1 pointer-events-none"
+                                              className="h-0.5 rounded-full ml-2.5 mr-1 pointer-events-none"
                                               style={{ backgroundColor: 'var(--zp-accent)' }}
                                             />
                                           )}
@@ -1512,22 +1556,19 @@ export default function App() {
                                           onDoubleClick={(e) =>
                                             handleStartRenameSidebarReq(req, e)
                                           }
-                                          className="flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-lg text-xs cursor-pointer group zp-surface-transition border"
+                                          className="relative ml-2 flex items-center h-8 px-1.5 rounded-[6px] text-xs cursor-pointer group transition-colors hover:bg-[var(--zp-bg-elevated)]"
                                           style={{
                                             backgroundColor: isSelected
                                               ? 'var(--zp-bg-elevated)'
-                                              : 'transparent',
-                                            borderColor: isSelected
-                                              ? 'var(--zp-border)'
-                                              : 'transparent',
+                                              : undefined,
                                             color: isSelected
                                               ? 'var(--zp-text-primary)'
                                               : 'var(--zp-text-secondary)',
                                           }}
                                         >
-                                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                             <span
-                                              className={`font-mono-tabular font-bold text-[11px] w-11 shrink-0 ${mStyle.text}`}
+                                              className={`font-mono-tabular font-bold text-[11px] shrink-0 ${mStyle.text}`}
                                               title={req.method}
                                             >
                                               {shortMethodLabel(req.method)}
@@ -1553,7 +1594,7 @@ export default function App() {
                                                     setEditingSidebarReqName('');
                                                   }
                                                 }}
-                                                className="w-full px-1.5 py-0.5 rounded border text-xs font-medium outline-none"
+                                                className="w-full h-6 px-1.5 rounded-[4px] border text-xs font-medium outline-none"
                                                 style={{
                                                   backgroundColor: 'var(--zp-bg-canvas)',
                                                   borderColor: 'var(--zp-accent)',
@@ -1570,7 +1611,10 @@ export default function App() {
                                             )}
                                           </div>
                                           {!isEditingReq && (
-                                            <div className="hidden group-hover:flex items-center gap-1 shrink-0">
+                                            <div
+                                              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-2 rounded-[4px] opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+                                              style={{ backgroundColor: 'var(--zp-bg-elevated)' }}
+                                            >
                                               <button
                                                 type="button"
                                                 onClick={(e) => {
@@ -1578,7 +1622,7 @@ export default function App() {
                                                   handleOpenRequestTab(req.id);
                                                   handleSendRequest(req);
                                                 }}
-                                                className="p-0.5 hover:opacity-80"
+                                                className="w-6 h-6 inline-flex items-center justify-center rounded-[4px] hover:bg-black/5 dark:hover:bg-white/5"
                                                 style={{ color: 'var(--zp-accent)' }}
                                                 title="立即发送此请求"
                                               >
@@ -1589,7 +1633,7 @@ export default function App() {
                                                 onClick={(e) =>
                                                   handleStartRenameSidebarReq(req, e)
                                                 }
-                                                className="p-0.5 hover:opacity-80"
+                                                className="w-6 h-6 inline-flex items-center justify-center rounded-[4px] hover:bg-black/5 dark:hover:bg-white/5"
                                                 title="重命名接口"
                                               >
                                                 <Pencil className="w-3 h-3" />
@@ -1597,7 +1641,7 @@ export default function App() {
                                               <button
                                                 type="button"
                                                 onClick={(e) => handleDuplicateRequest(req, e)}
-                                                className="p-0.5 hover:opacity-80"
+                                                className="w-6 h-6 inline-flex items-center justify-center rounded-[4px] hover:bg-black/5 dark:hover:bg-white/5"
                                                 title="克隆接口"
                                               >
                                                 <Copy className="w-3 h-3" />
@@ -1605,7 +1649,7 @@ export default function App() {
                                               <button
                                                 type="button"
                                                 onClick={(e) => handleDeleteRequest(req.id, e)}
-                                                className="p-0.5 hover:text-rose-500"
+                                                className="w-6 h-6 inline-flex items-center justify-center rounded-[4px] hover:bg-black/5 dark:hover:bg-white/5 hover:text-rose-500"
                                                 title="删除接口"
                                               >
                                                 <Trash2 className="w-3 h-3" />
@@ -1641,7 +1685,7 @@ export default function App() {
                   )
                 ) : history.length === 0 ? (
                   <div
-                    className="p-5 text-center text-xs rounded-xl border border-dashed my-2"
+                    className="p-5 text-center text-xs rounded-[8px] border border-dashed my-2"
                     style={{
                       color: 'var(--zp-text-muted)',
                       borderColor: 'var(--zp-border)',
@@ -1733,17 +1777,17 @@ export default function App() {
                                     handleOpenRequestTab(h.request.id);
                                   }
                                 }}
-                                className="p-2.5 rounded-xl border text-xs cursor-pointer group zp-surface-transition hover:border-[var(--zp-accent)]"
+                                className="p-2.5 rounded-[8px] border text-xs cursor-pointer group zp-surface-transition hover:border-[var(--zp-accent)]"
                                 style={{
                                   backgroundColor: 'var(--zp-bg-canvas)',
                                   borderColor: 'var(--zp-border-subtle)',
                                 }}
                               >
                                 {/* Row 1: Method + Request Name + Status Badge / Hover Actions */}
-                                <div className="flex items-center justify-between gap-1.5 mb-1 min-w-0">
+                                <div className="relative flex items-center justify-between gap-1.5 h-6 mb-1 min-w-0">
                                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                     <span
-                                      className={`font-mono-tabular font-bold text-[10px] px-1.5 py-0.5 rounded shrink-0 ${mStyle.bg} ${mStyle.text}`}
+                                      className={`font-mono-tabular font-bold text-[10px] px-1.5 py-0.5 rounded-[4px] shrink-0 ${mStyle.bg} ${mStyle.text}`}
                                     >
                                       {h.request.method}
                                     </span>
@@ -1756,12 +1800,16 @@ export default function App() {
                                     </span>
                                   </div>
 
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <span
-                                      className={`font-mono-tabular font-semibold text-[10px] px-1.5 py-0.5 rounded border ${statusColor}`}
-                                    >
-                                      {h.status > 0 ? h.status : 'ERR'}
-                                    </span>
+                                  <span
+                                    className={`font-mono-tabular font-semibold text-[10px] px-1.5 py-0.5 rounded-[4px] border shrink-0 group-hover:opacity-0 transition-opacity ${statusColor}`}
+                                  >
+                                    {h.status > 0 ? h.status : 'ERR'}
+                                  </span>
+
+                                  <div
+                                    className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-1.5 rounded-[4px] opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+                                    style={{ backgroundColor: 'var(--zp-bg-canvas)' }}
+                                  >
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -1778,7 +1826,7 @@ export default function App() {
                                           handleSendRequest(h.request);
                                         }
                                       }}
-                                      className="hidden group-hover:inline-flex p-0.5 rounded hover:opacity-80"
+                                      className="w-6 h-6 inline-flex items-center justify-center rounded-[4px] hover:bg-black/5 dark:hover:bg-white/5"
                                       style={{ color: 'var(--zp-accent)' }}
                                       title="重新发送此请求"
                                     >
@@ -1792,7 +1840,7 @@ export default function App() {
                                           prev.filter((item) => item.id !== h.id)
                                         );
                                       }}
-                                      className="hidden group-hover:inline-flex p-0.5 rounded hover:text-rose-500"
+                                      className="w-6 h-6 inline-flex items-center justify-center rounded-[4px] hover:bg-black/5 dark:hover:bg-white/5 hover:text-rose-500"
                                       style={{ color: 'var(--zp-text-muted)' }}
                                       title="删除此条记录"
                                     >
@@ -1910,7 +1958,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={(e) => handleCloseTab(req.id, e)}
-                        className={`p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 shrink-0 transition-opacity ${
+                        className={`p-0.5 rounded-[4px] hover:bg-black/10 dark:hover:bg-white/10 shrink-0 transition-opacity ${
                           isActive
                             ? 'opacity-65 hover:opacity-100'
                             : 'opacity-0 group-hover:opacity-80 hover:!opacity-100'
@@ -1942,7 +1990,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={handleCloseOtherTabs}
-                  className="inline-flex items-center px-2 py-1 rounded text-[11px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors whitespace-nowrap shrink-0"
+                  className="inline-flex items-center h-7 px-2 rounded-[6px] text-[11px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors whitespace-nowrap shrink-0"
                   style={{ color: 'var(--zp-text-muted)' }}
                   title="关闭除当前标签外的其他标签页"
                 >
@@ -1954,7 +2002,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setEnvPopoverOpen((prev) => !prev)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] text-xs font-medium zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
                   style={{ color: 'var(--zp-text-primary)' }}
                   title="切换运行环境、直接新建环境或配置环境变量"
                 >
@@ -1976,7 +2024,7 @@ export default function App() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 3, scale: 0.97 }}
                       transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                      className="absolute right-0 top-full mt-1.5 w-72 rounded-xl border p-2 z-50 zp-popover-shadow"
+                      className="absolute right-0 top-full mt-1.5 w-72 rounded-[12px] border p-2 z-50 zp-popover-shadow"
                       style={{
                         backgroundColor: 'var(--zp-bg-surface)',
                         borderColor: 'var(--zp-border)',
@@ -1996,7 +2044,7 @@ export default function App() {
                             setEnvPopoverOpen(false);
                             setIsEnvModalOpen(true);
                           }}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium transition-opacity hover:opacity-85"
+                          className="inline-flex items-center gap-1 h-6 px-2 rounded-[6px] text-[11px] font-medium transition-opacity hover:opacity-85"
                           style={{
                             backgroundColor: 'var(--zp-accent-soft)',
                             color: 'var(--zp-accent)',
@@ -2018,7 +2066,7 @@ export default function App() {
                                 setActiveEnvId(env.id);
                                 setEnvPopoverOpen(false);
                               }}
-                              className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5 group"
+                              className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-[6px] text-xs cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5 group"
                               style={{
                                 backgroundColor: isSelected ? 'var(--zp-accent-soft)' : 'transparent',
                                 color: isSelected ? 'var(--zp-accent)' : 'var(--zp-text-primary)',
@@ -2053,7 +2101,7 @@ export default function App() {
                                     setEnvPopoverOpen(false);
                                     setIsEnvModalOpen(true);
                                   }}
-                                  className="px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                                  className="px-1.5 py-0.5 rounded-[4px] text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
                                   style={{
                                     backgroundColor: 'var(--zp-bg-canvas)',
                                     color: 'var(--zp-text-secondary)',
@@ -2084,7 +2132,7 @@ export default function App() {
                             }
                           }}
                           placeholder="输入新环境名 (如 Staging)..."
-                          className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none"
+                          className="flex-1 min-w-0 h-8 px-2.5 rounded-[6px] border text-xs focus:outline-none focus:border-[var(--zp-accent)]"
                           style={{
                             backgroundColor: 'var(--zp-bg-input)',
                             borderColor: 'var(--zp-border)',
@@ -2094,7 +2142,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={handleQuickCreateEnvInline}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-opacity hover:opacity-90"
+                          className="inline-flex items-center gap-1 h-8 px-2.5 rounded-[6px] text-xs font-semibold whitespace-nowrap shrink-0 transition-opacity hover:opacity-90"
                           style={{
                             backgroundColor: 'var(--zp-accent)',
                             color: 'var(--zp-accent-fg)',
@@ -2141,7 +2189,7 @@ export default function App() {
                       type="text"
                       value={activeRequest.name}
                       onChange={(e) => updateActiveRequest({ name: e.target.value })}
-                      className="font-semibold text-xs bg-transparent border border-transparent hover:bg-black/[0.03] dark:hover:bg-white/[0.03] focus:border-[var(--zp-accent)] rounded-md focus:outline-none px-2 py-1 flex-1 max-w-md zp-surface-transition"
+                      className="font-semibold text-xs bg-transparent border border-transparent hover:bg-black/[0.03] dark:hover:bg-white/[0.03] focus:border-[var(--zp-accent)] rounded-[6px] focus:outline-none h-7 px-2 flex-1 max-w-md zp-surface-transition"
                       style={{ color: 'var(--zp-text-primary)' }}
                       placeholder="输入接口名称..."
                     />
@@ -2151,7 +2199,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={handleSaveRequest}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0 transition-colors"
+                      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0 transition-colors"
                       style={{
                         color: savedRequestNotice ? '#10B981' : 'var(--zp-text-secondary)',
                       }}
@@ -2172,7 +2220,7 @@ export default function App() {
                         setCopiedCurlQuick(true);
                         setTimeout(() => setCopiedCurlQuick(false), 1800);
                       }}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0 transition-colors"
+                      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0 transition-colors"
                       style={{ color: 'var(--zp-text-secondary)' }}
                       title="一键复制当前请求的 cURL 命令"
                     >
@@ -2186,10 +2234,10 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Bottom Row: Flush Rounded-lg URL Omnibar + Primary Send CTA */}
+                {/* Bottom Row: Flush Rounded-[6px] URL Omnibar + Primary Send CTA */}
                 <div className="flex items-center gap-2">
                   <div
-                    className="flex-1 flex items-center rounded-lg border zp-surface-transition focus-within:border-[var(--zp-accent)]"
+                    className="flex-1 flex items-center h-9 rounded-[6px] border zp-surface-transition focus-within:border-[var(--zp-accent)]"
                     style={{
                       backgroundColor: 'var(--zp-bg-input)',
                       borderColor: 'var(--zp-border)',
@@ -2217,11 +2265,10 @@ export default function App() {
                         }
                       }}
                       variant="method"
-                      minWidth={142}
+                      minWidth={108}
                       options={HTTP_METHODS.map((m) => ({
                         value: m,
                         label: m,
-                        colorDot: METHOD_COLORS[m].dot,
                         textClassName: METHOD_COLORS[m].text,
                       }))}
                     />
@@ -2237,7 +2284,7 @@ export default function App() {
                         }
                       }}
                       placeholder="输入接口地址（按 Enter 直接发送），如 https://api.example.com/v1/users 或 {{baseUrl}}/users"
-                      className="flex-1 px-3.5 py-2 text-xs bg-transparent focus:outline-none"
+                      className="flex-1 h-full px-3 text-xs bg-transparent focus:outline-none"
                       style={{ color: 'var(--zp-text-primary)' }}
                     />
                   </div>
@@ -2246,7 +2293,7 @@ export default function App() {
                     type="button"
                     onClick={() => handleSendRequest()}
                     disabled={loadingReqId === activeRequest.id}
-                    className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold transition-all hover:opacity-95 active:scale-[0.98] disabled:opacity-50 whitespace-nowrap shrink-0"
+                    className="inline-flex items-center justify-center gap-2 h-9 px-5 rounded-[6px] text-xs font-semibold transition-opacity hover:opacity-95 disabled:opacity-50 whitespace-nowrap shrink-0"
                     style={{
                       backgroundColor: 'var(--zp-accent)',
                       color: 'var(--zp-accent-fg)',
@@ -2271,7 +2318,7 @@ export default function App() {
                   } flex flex-col border-b min-h-0 zp-surface-transition`}
                   style={{ borderColor: 'var(--zp-border-subtle)' }}
                 >
-                  {/* Postman-style Flat Underline Sub-Tabs (No Pill Boxes / Borders) */}
+                  {/* Postman-style Flat Underline Sub-Tabs (Aligned with ResponseViewer) */}
                   <div
                     className="flex items-center justify-between px-4 border-b text-xs shrink-0 zp-surface-transition"
                     style={{
@@ -2287,7 +2334,7 @@ export default function App() {
                             key={tab.id}
                             type="button"
                             onClick={() => setReqSubTab(tab.id)}
-                            className="relative inline-flex items-center gap-1.5 py-2 font-medium transition-colors whitespace-nowrap shrink-0 hover:opacity-90"
+                            className="relative inline-flex items-center gap-1.5 py-2.5 font-medium transition-colors whitespace-nowrap shrink-0 hover:opacity-90"
                             style={{
                               color: active
                                 ? 'var(--zp-text-primary)'
@@ -2319,15 +2366,6 @@ export default function App() {
                         );
                       })}
                     </div>
-
-                    {activeRequest.description && (
-                      <span
-                        className="hidden xl:inline text-xs truncate max-w-sm"
-                        style={{ color: 'var(--zp-text-muted)' }}
-                      >
-                        {activeRequest.description}
-                      </span>
-                    )}
                   </div>
 
                   {/* Sub-Tab Body Content with Smooth Transition */}
@@ -2378,57 +2416,31 @@ export default function App() {
 
                         {reqSubTab === 'body' && (
                           <div className="flex-1 flex flex-col min-h-0">
-                            <div
-                              className="flex items-center justify-between px-4 py-1.5 border-b text-xs shrink-0"
-                              style={{ borderColor: 'var(--zp-border-subtle)' }}
-                            >
-                              <div
-                                className="inline-flex items-center gap-1 p-1 rounded-lg border"
-                                style={{
-                                  backgroundColor: 'var(--zp-bg-surface)',
-                                  borderColor: 'var(--zp-border)',
-                                }}
-                              >
-                                {(
-                                  [
-                                    { id: 'none', label: 'none' },
-                                    { id: 'json', label: 'JSON' },
-                                    { id: 'form-data', label: 'form-data' },
-                                    { id: 'urlencoded', label: 'x-www-form-urlencoded' },
-                                    { id: 'raw', label: 'raw (Text/XML)' },
-                                    { id: 'graphql', label: 'GraphQL' },
-                                  ] as const
-                                ).map((bType) => {
-                                  const active = activeRequest.body.type === bType.id;
-                                  return (
-                                    <button
-                                      key={bType.id}
-                                      type="button"
-                                      onClick={() =>
-                                        updateActiveRequest({
-                                          body: { ...activeRequest.body, type: bType.id },
-                                        })
-                                      }
-                                      className="px-2.5 py-1 rounded-md font-medium transition-colors whitespace-nowrap shrink-0"
-                                      style={{
-                                        backgroundColor: active
-                                          ? 'var(--zp-accent)'
-                                          : 'transparent',
-                                        color: active
-                                          ? 'var(--zp-accent-fg)'
-                                          : 'var(--zp-text-secondary)',
-                                      }}
-                                    >
-                                      {bType.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                            <div className="flex items-center justify-between gap-2 px-4 py-2 text-xs shrink-0 overflow-x-auto">
+                              <SegmentedControl
+                                value={activeRequest.body.type}
+                                onChange={(nextType) =>
+                                  updateActiveRequest({
+                                    body: { ...activeRequest.body, type: nextType },
+                                  })
+                                }
+                                layoutId="req-body-type"
+                                variant="quiet"
+                                activeStyle="soft-accent"
+                                options={[
+                                  { id: 'none', label: 'none' },
+                                  { id: 'json', label: 'JSON' },
+                                  { id: 'form-data', label: 'form-data' },
+                                  { id: 'urlencoded', label: 'x-www-form-urlencoded' },
+                                  { id: 'raw', label: 'raw (Text/XML)' },
+                                  { id: 'graphql', label: 'GraphQL' },
+                                ]}
+                              />
 
                               {activeRequest.body.type === 'json' && (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 shrink-0">
                                   <span
-                                    className={`font-mono-tabular ${
+                                    className={`font-mono-tabular whitespace-nowrap ${
                                       jsonSyntaxStatus.valid ? 'text-emerald-500' : 'text-rose-500'
                                     }`}
                                   >
@@ -2437,9 +2449,9 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => handleFormatJsonBody(false)}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs whitespace-nowrap shrink-0 hover:opacity-85"
+                                    className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[6px] border text-xs whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                                     style={{
-                                      borderColor: 'var(--zp-border)',
+                                      borderColor: 'var(--zp-border-subtle)',
                                       color: 'var(--zp-text-secondary)',
                                     }}
                                   >
@@ -2449,9 +2461,9 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => handleFormatJsonBody(true)}
-                                    className="px-2.5 py-1 rounded-lg border text-xs whitespace-nowrap shrink-0 hover:opacity-85"
+                                    className="h-7 px-2.5 rounded-[6px] border text-xs whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                                     style={{
-                                      borderColor: 'var(--zp-border)',
+                                      borderColor: 'var(--zp-border-subtle)',
                                       color: 'var(--zp-text-secondary)',
                                     }}
                                   >
@@ -2461,7 +2473,16 @@ export default function App() {
                               )}
                             </div>
 
-                            <div className="flex-1 min-h-0 flex flex-col">
+                            <div
+                              className={`flex-1 min-h-0 flex flex-col ${
+                                activeRequest.body.type === 'json' ||
+                                activeRequest.body.type === 'raw' ||
+                                activeRequest.body.type === 'graphql'
+                                  ? 'border-t'
+                                  : ''
+                              }`}
+                              style={{ borderColor: 'var(--zp-border-subtle)' }}
+                            >
                               {activeRequest.body.type === 'none' && (
                                 <div
                                   className="flex-1 flex items-center justify-center text-xs"
@@ -2598,10 +2619,7 @@ export default function App() {
 
                         {reqSubTab === 'tests' && (
                           <div className="flex-1 flex flex-col min-h-0">
-                            <div
-                              className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b text-xs shrink-0"
-                              style={{ borderColor: 'var(--zp-border-subtle)' }}
-                            >
+                            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-2.5 pb-1 text-xs shrink-0">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <button
                                   type="button"
@@ -2617,7 +2635,7 @@ export default function App() {
                                       assertions: [...activeRequest.assertions, nextRule],
                                     });
                                   }}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-medium whitespace-nowrap shrink-0"
+                                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[6px] font-medium whitespace-nowrap shrink-0"
                                   style={{
                                     backgroundColor: 'var(--zp-accent-soft)',
                                     color: 'var(--zp-accent)',
@@ -2640,9 +2658,9 @@ export default function App() {
                                       assertions: [...activeRequest.assertions, nextRule],
                                     });
                                   }}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-medium whitespace-nowrap shrink-0 hover:opacity-85"
+                                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[6px] border font-medium whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                                   style={{
-                                    borderColor: 'var(--zp-border)',
+                                    borderColor: 'var(--zp-border-subtle)',
                                     backgroundColor: 'var(--zp-bg-surface)',
                                     color: 'var(--zp-text-secondary)',
                                   }}
@@ -2664,9 +2682,9 @@ export default function App() {
                                       assertions: [...activeRequest.assertions, nextRule],
                                     });
                                   }}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-medium whitespace-nowrap shrink-0 hover:opacity-85"
+                                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[6px] border font-medium whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                                   style={{
-                                    borderColor: 'var(--zp-border)',
+                                    borderColor: 'var(--zp-border-subtle)',
                                     backgroundColor: 'var(--zp-bg-surface)',
                                     color: 'var(--zp-text-secondary)',
                                   }}
@@ -2688,9 +2706,9 @@ export default function App() {
                                       assertions: [...activeRequest.assertions, nextRule],
                                     });
                                   }}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-medium whitespace-nowrap shrink-0 hover:opacity-85"
+                                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[6px] border font-medium whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                                   style={{
-                                    borderColor: 'var(--zp-border)',
+                                    borderColor: 'var(--zp-border-subtle)',
                                     backgroundColor: 'var(--zp-bg-surface)',
                                     color: 'var(--zp-text-secondary)',
                                   }}
@@ -2707,7 +2725,7 @@ export default function App() {
                             <div className="flex-1 overflow-y-auto p-3.5 space-y-2 text-xs">
                               {activeRequest.assertions.length === 0 ? (
                                 <div
-                                  className="p-6 text-center rounded-xl border border-dashed"
+                                  className="p-6 text-center rounded-[8px] border border-dashed"
                                   style={{
                                     borderColor: 'var(--zp-border)',
                                     color: 'var(--zp-text-muted)',
@@ -2723,33 +2741,23 @@ export default function App() {
                                   return (
                                     <div
                                       key={rule.id}
-                                      className="flex flex-wrap items-center gap-2 p-2.5 rounded-xl border"
+                                      className="flex flex-wrap items-center gap-2 p-2.5 rounded-[8px] border"
                                       style={{
                                         backgroundColor: 'var(--zp-bg-surface)',
                                         borderColor: 'var(--zp-border)',
                                       }}
                                     >
-                                      <button
-                                        type="button"
-                                        onClick={() =>
+                                      <UiCheckbox
+                                        checked={rule.enabled}
+                                        onChange={(next) =>
                                           updateActiveRequest({
                                             assertions: activeRequest.assertions.map((a) =>
-                                              a.id === rule.id ? { ...a, enabled: !a.enabled } : a
+                                              a.id === rule.id ? { ...a, enabled: next } : a
                                             ),
                                           })
                                         }
-                                        style={{
-                                          color: rule.enabled
-                                            ? 'var(--zp-accent)'
-                                            : 'var(--zp-text-muted)',
-                                        }}
-                                      >
-                                        {rule.enabled ? (
-                                          <CheckSquare className="w-4 h-4" />
-                                        ) : (
-                                          <Square className="w-4 h-4" />
-                                        )}
-                                      </button>
+                                        title="启用或禁用此规则"
+                                      />
 
                                       <CustomSelect
                                         value={rule.type}
@@ -2797,7 +2805,7 @@ export default function App() {
                                               ? '响应头名称 (如 content-type)'
                                               : 'JSON 路径 (如 data.0.id 或 access_token)'
                                           }
-                                          className="flex-1 min-w-[160px] px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                                          className="flex-1 min-w-[160px] h-8 px-3 rounded-[6px] border text-xs focus:outline-none focus:border-[var(--zp-accent)]"
                                           style={{
                                             backgroundColor: 'var(--zp-bg-input)',
                                             borderColor: 'var(--zp-border)',
@@ -2824,7 +2832,7 @@ export default function App() {
                                               ? '目标变量名 (如 auth_token)'
                                               : '期望值 (如 200)'
                                           }
-                                          className="flex-1 min-w-[140px] px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                                          className="flex-1 min-w-[140px] h-8 px-3 rounded-[6px] border text-xs focus:outline-none focus:border-[var(--zp-accent)]"
                                           style={{
                                             backgroundColor: 'var(--zp-bg-input)',
                                             borderColor: 'var(--zp-border)',
@@ -2835,7 +2843,7 @@ export default function App() {
 
                                       {liveResult && (
                                         <span
-                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium ${
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-xs font-medium ${
                                             liveResult.passed
                                               ? 'bg-emerald-500/10 text-emerald-500'
                                               : 'bg-rose-500/10 text-rose-500'
@@ -2860,8 +2868,9 @@ export default function App() {
                                             ),
                                           })
                                         }
-                                        className="p-1 hover:text-rose-500"
+                                        className="w-7 h-7 inline-flex items-center justify-center rounded-[6px] hover:bg-black/5 dark:hover:bg-white/5 hover:text-rose-500 transition-colors shrink-0"
                                         style={{ color: 'var(--zp-text-muted)' }}
+                                        title="删除此规则"
                                       >
                                         <Trash2 className="w-3.5 h-3.5" />
                                       </button>
@@ -2875,45 +2884,22 @@ export default function App() {
 
                         {reqSubTab === 'code' && (
                           <div className="flex-1 flex flex-col min-h-0">
-                            <div
-                              className="flex items-center justify-between px-4 py-1.5 border-b text-xs shrink-0"
-                              style={{ borderColor: 'var(--zp-border-subtle)' }}
-                            >
-                              <div
-                                className="inline-flex items-center gap-1 p-1 rounded-lg border"
-                                style={{
-                                  backgroundColor: 'var(--zp-bg-surface)',
-                                  borderColor: 'var(--zp-border)',
-                                }}
-                              >
-                                {(
-                                  [
-                                    { id: 'curl', label: 'cURL' },
-                                    { id: 'fetch', label: 'JavaScript (fetch)' },
-                                    { id: 'axios', label: 'Node.js (axios)' },
-                                    { id: 'python', label: 'Python (requests)' },
-                                    { id: 'go', label: 'Go (net/http)' },
-                                    { id: 'rust', label: 'Rust (reqwest)' },
-                                  ] as const
-                                ).map((l) => (
-                                  <button
-                                    key={l.id}
-                                    type="button"
-                                    onClick={() => setCodeLang(l.id)}
-                                    className="px-2.5 py-1 rounded-md font-medium transition-colors whitespace-nowrap shrink-0"
-                                    style={{
-                                      backgroundColor:
-                                        codeLang === l.id ? 'var(--zp-accent)' : 'transparent',
-                                      color:
-                                        codeLang === l.id
-                                          ? 'var(--zp-accent-fg)'
-                                          : 'var(--zp-text-secondary)',
-                                    }}
-                                  >
-                                    {l.label}
-                                  </button>
-                                ))}
-                              </div>
+                            <div className="flex items-center justify-between gap-2 px-4 py-2 text-xs shrink-0 overflow-x-auto">
+                              <SegmentedControl
+                                value={codeLang}
+                                onChange={setCodeLang}
+                                layoutId="req-code-lang"
+                                variant="quiet"
+                                activeStyle="soft-accent"
+                                options={[
+                                  { id: 'curl', label: 'cURL' },
+                                  { id: 'fetch', label: 'JavaScript (fetch)' },
+                                  { id: 'axios', label: 'Node.js (axios)' },
+                                  { id: 'python', label: 'Python (requests)' },
+                                  { id: 'go', label: 'Go (net/http)' },
+                                  { id: 'rust', label: 'Rust (reqwest)' },
+                                ]}
+                              />
 
                               <button
                                 type="button"
@@ -2927,9 +2913,9 @@ export default function App() {
                                   setCopiedCode(true);
                                   setTimeout(() => setCopiedCode(false), 1800);
                                 }}
-                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs whitespace-nowrap shrink-0"
+                                className="inline-flex items-center gap-1.5 h-7 px-3 rounded-[6px] border text-xs whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                                 style={{
-                                  borderColor: 'var(--zp-border)',
+                                  borderColor: 'var(--zp-border-subtle)',
                                   color: 'var(--zp-text-secondary)',
                                 }}
                               >
@@ -2943,8 +2929,9 @@ export default function App() {
                             </div>
 
                             <pre
-                              className="flex-1 overflow-auto p-4 font-mono-tabular text-xs leading-relaxed zp-surface-transition"
+                              className="flex-1 overflow-auto p-4 border-t font-mono-tabular text-xs leading-relaxed zp-surface-transition"
                               style={{
+                                borderColor: 'var(--zp-border-subtle)',
                                 backgroundColor: 'var(--zp-code-bg)',
                                 color: 'var(--zp-text-primary)',
                               }}
@@ -2978,7 +2965,7 @@ export default function App() {
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none">
               <img
                 src="/icons/openpost_icon_pack/png/transparent/openpost-128-transparent.png"
-                alt="openPost"
+                alt="OpenPost"
                 className="w-16 h-16 object-contain mb-4 opacity-80"
               />
               <h3 className="text-sm font-semibold font-display mb-1">
@@ -2994,7 +2981,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleCreateNewRequest()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-95"
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-[6px] text-xs font-semibold transition-opacity hover:opacity-95 whitespace-nowrap"
                   style={{
                     backgroundColor: 'var(--zp-accent)',
                     color: 'var(--zp-accent-fg)',
@@ -3006,7 +2993,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setIsImportModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border text-xs font-medium hover:opacity-85"
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-[6px] border text-xs font-medium hover:opacity-85 whitespace-nowrap"
                   style={{
                     borderColor: 'var(--zp-border)',
                     backgroundColor: 'var(--zp-bg-surface)',

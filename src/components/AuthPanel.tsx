@@ -16,6 +16,7 @@ import {
   EnvironmentProfile,
 } from '../types/api';
 import { CustomSelect, SelectOption } from './CustomSelect';
+import { ToggleSwitch } from './UiControls';
 import { exchangeOAuth2Token } from '../utils/authEngine';
 
 interface AuthPanelProps {
@@ -95,7 +96,7 @@ const AuthInput: React.FC<{
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-1.5 rounded-md border text-xs focus:outline-none focus:border-[var(--zp-accent)] transition-colors"
+        className="w-full px-3 py-1.5 rounded-[6px] border text-xs focus:outline-none focus:border-[var(--zp-accent)] transition-colors"
         style={{
           backgroundColor: 'var(--zp-bg-input)',
           borderColor: 'var(--zp-border)',
@@ -201,33 +202,35 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({
         </p>
 
         {auth.type === 'digest' && (
-          <label
-            className="flex items-center gap-2 pt-1 cursor-pointer select-none text-[11px]"
-            style={{ color: 'var(--zp-text-secondary)' }}
+          <div
+            className="p-2.5 rounded-[8px]"
+            style={{
+              backgroundColor: 'var(--zp-bg-surface)',
+            }}
           >
-            <input
-              type="checkbox"
+            <ToggleSwitch
+              size="sm"
               checked={Boolean(auth.digestDisableRetry)}
-              onChange={(e) => patch({ digestDisableRetry: e.target.checked })}
-              className="rounded accent-[var(--zp-accent)]"
+              onChange={(next) => patch({ digestDisableRetry: next })}
+              label="禁用 401 质询自动重试"
             />
-            <span>禁用 401 质询自动重试</span>
-          </label>
+          </div>
         )}
 
         {auth.type === 'ntlm' && (
-          <label
-            className="flex items-center gap-2 pt-1 cursor-pointer select-none text-[11px]"
-            style={{ color: 'var(--zp-text-secondary)' }}
+          <div
+            className="p-2.5 rounded-[8px]"
+            style={{
+              backgroundColor: 'var(--zp-bg-surface)',
+            }}
           >
-            <input
-              type="checkbox"
+            <ToggleSwitch
+              size="sm"
               checked={Boolean(auth.ntlmDisableRetry)}
-              onChange={(e) => patch({ ntlmDisableRetry: e.target.checked })}
-              className="rounded accent-[var(--zp-accent)]"
+              onChange={(next) => patch({ ntlmDisableRetry: next })}
+              label="禁用 401 协商自动重试"
             />
-            <span>禁用 401 协商自动重试</span>
-          </label>
+          </div>
         )}
       </div>
 
@@ -235,10 +238,9 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({
       <div className="flex-1 min-w-0 p-4 overflow-y-auto space-y-4">
         {auth.type !== 'none' && auth.type !== 'inherit' && (
           <div
-            className="flex items-center gap-2 text-[11px] pb-2 border-b"
+            className="flex items-center gap-2 text-[11px]"
             style={{
               color: 'var(--zp-text-muted)',
-              borderColor: 'var(--zp-border-subtle)',
             }}
           >
             <Info className="w-3.5 h-3.5 shrink-0 opacity-75" />
@@ -265,7 +267,7 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingParentAuth((p) => !p)}
-                  className="px-2.5 py-1 rounded-md text-[11px] font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  className="px-2.5 py-1 rounded-[6px] text-[11px] font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                   style={{ color: 'var(--zp-accent)' }}
                 >
                   {editingParentAuth ? '收起目录鉴权' : '配置目录鉴权'}
@@ -457,33 +459,27 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({
               />
             </FieldRow>
             <FieldRow label="Secret">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <AuthInput
                   secret
                   value={auth.jwtSecret || ''}
                   onChange={(v) => patch({ jwtSecret: v })}
                   placeholder="your-256-bit-secret"
                 />
-                <label
-                  className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer"
-                  style={{ color: 'var(--zp-text-muted)' }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={Boolean(auth.jwtSecretBase64)}
-                    onChange={(e) => patch({ jwtSecretBase64: e.target.checked })}
-                    className="rounded accent-[var(--zp-accent)]"
-                  />
-                  <span>Secret Base64 encoded</span>
-                </label>
+                <ToggleSwitch
+                  size="sm"
+                  checked={Boolean(auth.jwtSecretBase64)}
+                  onChange={(next) => patch({ jwtSecretBase64: next })}
+                  label="Secret Base64 encoded"
+                />
               </div>
             </FieldRow>
             <FieldRow label="Payload (JSON)">
               <textarea
                 rows={4}
-                value={auth.jwtPayload || '{\n  "sub": "1234567890",\n  "name": "openPost",\n  "iat": 1516239022\n}'}
+                value={auth.jwtPayload || '{\n  "sub": "1234567890",\n  "name": "OpenPost",\n  "iat": 1516239022\n}'}
                 onChange={(e) => patch({ jwtPayload: e.target.value })}
-                className="w-full px-3 py-2 rounded-md border text-xs focus:outline-none focus:border-[var(--zp-accent)]"
+                className="w-full px-3 py-2 rounded-[6px] border font-mono-tabular text-xs focus:outline-none focus:border-[var(--zp-accent)]"
                 style={{
                   backgroundColor: 'var(--zp-bg-input)',
                   borderColor: 'var(--zp-border)',
@@ -517,7 +513,7 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({
                     rows={2}
                     value={auth.jwtHeadersJson || '{}'}
                     onChange={(e) => patch({ jwtHeadersJson: e.target.value })}
-                    className="w-full px-3 py-1.5 rounded-md border text-xs focus:outline-none focus:border-[var(--zp-accent)]"
+                    className="w-full px-3 py-1.5 rounded-[6px] border font-mono-tabular text-xs focus:outline-none focus:border-[var(--zp-accent)]"
                     style={{
                       backgroundColor: 'var(--zp-bg-input)',
                       borderColor: 'var(--zp-border)',
@@ -905,7 +901,7 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({
                       type="button"
                       disabled={oauth2Loading}
                       onClick={handleFetchOAuth2Token}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-opacity disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-[6px] font-medium transition-opacity disabled:opacity-50"
                       style={{
                         backgroundColor: 'var(--zp-accent)',
                         color: 'var(--zp-accent-fg)',

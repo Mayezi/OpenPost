@@ -124,7 +124,7 @@ fn app_config_file_path() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
         if let Ok(appdata) = env::var("LOCALAPPDATA") {
-            let dir = PathBuf::from(appdata).join("openPost");
+            let dir = PathBuf::from(appdata).join("OpenPost");
             let _ = fs::create_dir_all(&dir);
             return dir.join("storage-config.json");
         }
@@ -135,7 +135,7 @@ fn app_config_file_path() -> PathBuf {
             let dir = PathBuf::from(home)
                 .join("Library")
                 .join("Application Support")
-                .join("openPost");
+                .join("OpenPost");
             let _ = fs::create_dir_all(&dir);
             return dir.join("storage-config.json");
         }
@@ -162,7 +162,7 @@ fn default_vault_dir() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
         if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
-            return PathBuf::from(local_app_data).join("openPost_Vault");
+            return PathBuf::from(local_app_data).join("OpenPost_Vault");
         }
     }
     #[cfg(target_os = "macos")]
@@ -171,7 +171,7 @@ fn default_vault_dir() -> PathBuf {
             return PathBuf::from(home)
                 .join("Library")
                 .join("Application Support")
-                .join("openPost_Vault");
+                .join("OpenPost_Vault");
         }
     }
     #[cfg(target_os = "linux")]
@@ -252,12 +252,12 @@ fn suggested_os_paths() -> Vec<String> {
     let mut list = vec![default_vault_dir().to_string_lossy().to_string()];
     #[cfg(target_os = "windows")]
     {
-        list.push("D:\\openPost_Data\\Vault".to_string());
-        list.push("E:\\openPost_Data\\Vault".to_string());
+        list.push("D:\\OpenPost_Data\\Vault".to_string());
+        list.push("E:\\OpenPost_Data\\Vault".to_string());
     }
     #[cfg(target_os = "macos")]
     {
-        list.push("/Volumes/ExternalSSD/openPost_Vault".to_string());
+        list.push("/Volumes/ExternalSSD/OpenPost_Vault".to_string());
     }
     #[cfg(target_os = "linux")]
     {
@@ -583,7 +583,7 @@ fn execute_rust_http_proxy(
         }
     }
     if !has_ua {
-        req = req.set("User-Agent", "openPost-RustCore/2.0 (Native-Desktop)");
+        req = req.set("User-Agent", "OpenPost-RustCore/2.0 (Native-Desktop)");
     }
 
     let body_text = match payload.body {
@@ -754,7 +754,7 @@ fn handle_client(
             "200 OK",
             &json!({
                 "ok": true,
-                "engine": "openPost-Rust-Native-Core",
+                "engine": "OpenPost-Rust-Native-Core",
                 "version": "2.0.2"
             }),
         );
@@ -1091,7 +1091,7 @@ fn handle_client(
         &mut stream,
         "404 Not Found",
         "text/plain; charset=utf-8",
-        b"openPost: Asset not found",
+        b"OpenPost: Asset not found",
     );
 }
 
@@ -1164,7 +1164,7 @@ fn main() {
     // Frameless window (`with_decorations(false)`) just like DBX:
     // No system OS titlebar/status bar at the top; the custom top bar controls drag/minimize/maximize/close directly.
     let window = WindowBuilder::new()
-        .with_title("openPost")
+        .with_title("OpenPost")
         .with_decorations(false)
         .with_inner_size(LogicalSize::new(1440.0, 900.0))
         .with_min_inner_size(LogicalSize::new(1024.0, 680.0))

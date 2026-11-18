@@ -1,4 +1,4 @@
-name: openPost Rust Desktop Release (Win / macOS / Linux)
+name: OpenPost Rust Desktop Release (Win / macOS / Linux)
 
 on:
   push:
@@ -58,15 +58,15 @@ jobs:
           - os: windows-latest
             target_os: windows
             label: Windows x64 (Setup.exe Installer)
-            artifact_name: openPost-Windows-x64-Installer
+            artifact_name: OpenPost-Windows-x64-Installer
           - os: macos-latest
             target_os: macos
             label: macOS (.dmg Native Installer)
-            artifact_name: openPost-macOS-Installer
+            artifact_name: OpenPost-macOS-Installer
           - os: ubuntu-24.04
             target_os: linux
             label: Linux amd64 (.deb Native Installer)
-            artifact_name: openPost-Linux-amd64-Installer
+            artifact_name: OpenPost-Linux-amd64-Installer
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -104,25 +104,25 @@ jobs:
           New-Item -ItemType Directory -Force -Path "release-dist" | Out-Null
 
           $icoPath = (Resolve-Path "public/icons/openpost_icon_pack/platform/windows/openpost.ico").Path
-          $exePath = (Resolve-Path "rust-desktop/target/release/openPost.exe").Path
-          $outSetup = Join-Path (Resolve-Path "release-dist").Path "openPost-Windows-x64-Setup.exe"
+          $exePath = (Resolve-Path "rust-desktop/target/release/OpenPost.exe").Path
+          $outSetup = Join-Path (Resolve-Path "release-dist").Path "OpenPost-Windows-x64-Setup.exe"
 
           $nsiContent = @"
           Unicode True
           !include "MUI2.nsh"
 
-          Name "openPost"
+          Name "OpenPost"
           OutFile "$outSetup"
-          InstallDir "`$LOCALAPPDATA\Programs\openPost"
-          InstallDirRegKey HKCU "Software\openPost" "Install_Dir"
+          InstallDir "`$LOCALAPPDATA\Programs\OpenPost"
+          InstallDirRegKey HKCU "Software\OpenPost" "Install_Dir"
           RequestExecutionLevel user
-          BrandingText "openPost v2.0.2 Native Rust Desktop Engine"
+          BrandingText "OpenPost v2.0.2 Native Rust Desktop Engine"
 
           !define MUI_ICON "$icoPath"
           !define MUI_UNICON "$icoPath"
           !define MUI_ABORTWARNING
-          !define MUI_FINISHPAGE_RUN "`$INSTDIR\openPost.exe"
-          !define MUI_FINISHPAGE_RUN_TEXT "立即启动 openPost"
+          !define MUI_FINISHPAGE_RUN "`$INSTDIR\OpenPost.exe"
+          !define MUI_FINISHPAGE_RUN_TEXT "立即启动 OpenPost"
 
           !insertmacro MUI_PAGE_WELCOME
           !insertmacro MUI_PAGE_DIRECTORY
@@ -134,41 +134,41 @@ jobs:
 
           !insertmacro MUI_LANGUAGE "SimpChinese"
 
-          Section "openPost 主程序 (必选)" SecMain
+          Section "OpenPost 主程序 (必选)" SecMain
             SectionIn RO
             SetOutPath "`$INSTDIR"
-            File "/oname=openPost.exe" "$exePath"
+            File "/oname=OpenPost.exe" "$exePath"
             File "/oname=openpost.ico" "$icoPath"
 
-            WriteRegStr HKCU "Software\openPost" "Install_Dir" "`$INSTDIR"
+            WriteRegStr HKCU "Software\OpenPost" "Install_Dir" "`$INSTDIR"
             WriteUninstaller "`$INSTDIR\Uninstall.exe"
 
-            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "DisplayName" "openPost - Local-First API Studio"
-            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "DisplayVersion" "2.0.2"
-            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "Publisher" "openPost Contributors"
-            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "DisplayIcon" "`$INSTDIR\openPost.exe"
-            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "InstallLocation" "`$INSTDIR"
-            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "UninstallString" '"`$INSTDIR\Uninstall.exe"'
-            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "NoModify" 1
-            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost" "NoRepair" 1
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayName" "OpenPost - Local-First API Studio"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayVersion" "2.0.2"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "Publisher" "OpenPost Contributors"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayIcon" "`$INSTDIR\OpenPost.exe"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "InstallLocation" "`$INSTDIR"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "UninstallString" '"`$INSTDIR\Uninstall.exe"'
+            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "NoModify" 1
+            WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "NoRepair" 1
 
-            CreateDirectory "`$SMPROGRAMS\openPost"
-            CreateShortCut "`$SMPROGRAMS\openPost\openPost.lnk" "`$INSTDIR\openPost.exe" "" "`$INSTDIR\openpost.ico"
-            CreateShortCut "`$SMPROGRAMS\openPost\卸载 openPost.lnk" "`$INSTDIR\Uninstall.exe" "" "`$INSTDIR\openpost.ico"
-            CreateShortCut "`$DESKTOP\openPost.lnk" "`$INSTDIR\openPost.exe" "" "`$INSTDIR\openpost.ico"
+            CreateDirectory "`$SMPROGRAMS\OpenPost"
+            CreateShortCut "`$SMPROGRAMS\OpenPost\OpenPost.lnk" "`$INSTDIR\OpenPost.exe" "" "`$INSTDIR\openpost.ico"
+            CreateShortCut "`$SMPROGRAMS\OpenPost\卸载 OpenPost.lnk" "`$INSTDIR\Uninstall.exe" "" "`$INSTDIR\openpost.ico"
+            CreateShortCut "`$DESKTOP\OpenPost.lnk" "`$INSTDIR\OpenPost.exe" "" "`$INSTDIR\openpost.ico"
           SectionEnd
 
           Section "Uninstall"
-            Delete "`$INSTDIR\openPost.exe"
+            Delete "`$INSTDIR\OpenPost.exe"
             Delete "`$INSTDIR\openpost.ico"
             Delete "`$INSTDIR\Uninstall.exe"
-            Delete "`$SMPROGRAMS\openPost\openPost.lnk"
-            Delete "`$SMPROGRAMS\openPost\卸载 openPost.lnk"
-            Delete "`$DESKTOP\openPost.lnk"
-            RMDir "`$SMPROGRAMS\openPost"
+            Delete "`$SMPROGRAMS\OpenPost\OpenPost.lnk"
+            Delete "`$SMPROGRAMS\OpenPost\卸载 OpenPost.lnk"
+            Delete "`$DESKTOP\OpenPost.lnk"
+            RMDir "`$SMPROGRAMS\OpenPost"
             RMDir "`$INSTDIR"
-            DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\openPost"
-            DeleteRegKey HKCU "Software\openPost"
+            DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost"
+            DeleteRegKey HKCU "Software\OpenPost"
           SectionEnd
           "@
 
@@ -195,11 +195,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-dist
-          APP_DIR="dmg-staging/openPost.app/Contents"
+          APP_DIR="dmg-staging/OpenPost.app/Contents"
           mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
 
-          cp "rust-desktop/target/release/openPost" "$APP_DIR/MacOS/openPost"
-          chmod +x "$APP_DIR/MacOS/openPost"
+          cp "rust-desktop/target/release/OpenPost" "$APP_DIR/MacOS/OpenPost"
+          chmod +x "$APP_DIR/MacOS/OpenPost"
 
           iconutil -c icns "public/icons/openpost_icon_pack/platform/macos/openpost.iconset" -o "$APP_DIR/Resources/openpost.icns" || true
 
@@ -209,15 +209,15 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>CFBundleExecutable</key>
-            <string>openPost</string>
+            <string>OpenPost</string>
             <key>CFBundleIconFile</key>
             <string>openpost.icns</string>
             <key>CFBundleIdentifier</key>
             <string>dev.openpost.desktop</string>
             <key>CFBundleName</key>
-            <string>openPost</string>
+            <string>OpenPost</string>
             <key>CFBundleDisplayName</key>
-            <string>openPost</string>
+            <string>OpenPost</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
@@ -231,7 +231,7 @@ jobs:
           EOF
 
           ln -s /Applications dmg-staging/Applications
-          hdiutil create -volname "openPost" -srcfolder "dmg-staging" -ov -format UDZO "release-dist/openPost-macOS-Universal.dmg"
+          hdiutil create -volname "OpenPost" -srcfolder "dmg-staging" -ov -format UDZO "release-dist/OpenPost-macOS-Universal.dmg"
 
       - name: Build Linux Native .deb Installer (No Tar/Zip)
         if: matrix.target_os == 'linux'
@@ -244,7 +244,7 @@ jobs:
           mkdir -p "$DEB_DIR/usr/share/applications"
           mkdir -p "$DEB_DIR/usr/share/icons/hicolor/256x256/apps"
 
-          cp "rust-desktop/target/release/openPost" "$DEB_DIR/usr/bin/openpost"
+          cp "rust-desktop/target/release/OpenPost" "$DEB_DIR/usr/bin/openpost"
           chmod 0755 "$DEB_DIR/usr/bin/openpost"
           cp "public/icons/openpost_icon_pack/png/transparent/openpost-256-transparent.png" "$DEB_DIR/usr/share/icons/hicolor/256x256/apps/openpost.png"
 
@@ -255,13 +255,13 @@ jobs:
           Priority: optional
           Architecture: amd64
           Depends: libwebkit2gtk-4.1-0, libgtk-3-0
-          Maintainer: openPost Contributors
-          Description: openPost 100% Local-First API Debugging Studio (Zero Login, Zero Telemetry)
+          Maintainer: OpenPost Contributors
+          Description: OpenPost 100% Local-First API Debugging Studio (Zero Login, Zero Telemetry)
           EOF
 
           cat > "$DEB_DIR/usr/share/applications/openpost.desktop" <<EOF
           [Desktop Entry]
-          Name=openPost
+          Name=OpenPost
           Comment=100% Local-First API Debugging Studio
           Exec=/usr/bin/openpost
           Icon=openpost
@@ -270,7 +270,7 @@ jobs:
           Categories=Development;WebDevelopment;
           EOF
 
-          dpkg-deb --build "$DEB_DIR" "release-dist/openPost-Linux-amd64.deb"
+          dpkg-deb --build "$DEB_DIR" "release-dist/OpenPost-Linux-amd64.deb"
 
       - name: Upload Raw Installer to Workflow Artifacts
         uses: actions/upload-artifact@v7
@@ -289,11 +289,11 @@ jobs:
           else
             REL_TAG="v2.0.2"
           fi
-          gh release view "$REL_TAG" >/dev/null 2>&1 || gh release create "$REL_TAG" --title "openPost $REL_TAG (Native Desktop Installers)" --notes "直接点击下方对应的原生安装包即可下载安装（基于 tao + wry 原生桌面窗口架构，无需解压）：
-          - **Windows 安装向导版 (NSIS Setup)**: \`openPost-Windows-x64-Setup.exe\`
-          - **macOS 原生镜像安装包**: \`openPost-macOS-Universal.dmg\`
-          - **Linux 原生安装包**: \`openPost-Linux-amd64.deb\`"
-          gh release delete-asset "$REL_TAG" "openPost-Windows-x64-Portable.exe" -y >/dev/null 2>&1 || true
+          gh release view "$REL_TAG" >/dev/null 2>&1 || gh release create "$REL_TAG" --title "OpenPost $REL_TAG (Native Desktop Installers)" --notes "直接点击下方对应的原生安装包即可下载安装（基于 tao + wry 原生桌面窗口架构，无需解压）：
+          - **Windows 安装向导版 (NSIS Setup)**: \`OpenPost-Windows-x64-Setup.exe\`
+          - **macOS 原生镜像安装包**: \`OpenPost-macOS-Universal.dmg\`
+          - **Linux 原生安装包**: \`OpenPost-Linux-amd64.deb\`"
+          gh release delete-asset "$REL_TAG" "OpenPost-Windows-x64-Portable.exe" -y >/dev/null 2>&1 || true
           gh release upload "$REL_TAG" release-dist/* --clobber
 
           echo "### 📦 原生独立安装包直链下载（无需解压 .zip）" >> $GITHUB_STEP_SUMMARY

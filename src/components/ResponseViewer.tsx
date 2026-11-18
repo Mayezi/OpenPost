@@ -154,19 +154,19 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
         </div>
         <div className="flex-1 p-4 space-y-2.5 overflow-hidden">
           <div
-            className="h-5 w-1/3 rounded-lg animate-pulse"
+            className="h-5 w-1/3 rounded-[6px] animate-pulse"
             style={{ backgroundColor: 'var(--zp-bg-elevated)' }}
           />
           <div
-            className="h-4 w-2/3 rounded-lg animate-pulse"
+            className="h-4 w-2/3 rounded-[6px] animate-pulse"
             style={{ backgroundColor: 'var(--zp-bg-elevated)' }}
           />
           <div
-            className="h-4 w-1/2 rounded-lg animate-pulse"
+            className="h-4 w-1/2 rounded-[6px] animate-pulse"
             style={{ backgroundColor: 'var(--zp-bg-elevated)' }}
           />
           <div
-            className="h-32 w-full rounded-xl animate-pulse mt-4"
+            className="h-32 w-full rounded-[8px] animate-pulse mt-4"
             style={{ backgroundColor: 'var(--zp-bg-elevated)' }}
           />
         </div>
@@ -179,7 +179,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center h-full zp-surface-transition">
         <img
           src="/icons/openpost_icon_pack/png/transparent/openpost-128-transparent.png"
-          alt="openPost"
+          alt="OpenPost"
           className="w-12 h-12 object-contain mb-3"
         />
         <p className="text-sm font-semibold font-display mb-1" style={{ color: 'var(--zp-text-primary)' }}>
@@ -228,17 +228,17 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
 
   return (
     <div className="flex-1 flex flex-col h-full min-h-0 zp-surface-transition">
-      {/* Response Status & Telemetry Strip */}
+      {/* Response Status & Telemetry Strip (Matches Request Builder Flat Underline Tab Grammar) */}
       <div
         onDoubleClick={() => onToggleExpand?.()}
-        className="flex flex-wrap items-center justify-between gap-3 px-4 py-1.5 border-b text-xs zp-surface-transition"
+        className="flex flex-wrap items-center justify-between gap-3 px-4 border-b text-xs zp-surface-transition"
         style={{
           borderColor: 'var(--zp-border-subtle)',
           backgroundColor: 'var(--zp-bg-surface)',
         }}
       >
-        {/* Left: Smooth Animated Tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto py-0.5">
+        {/* Left: Flat Underline Tabs */}
+        <div className="flex items-center gap-5 overflow-x-auto">
           {tabItems.map((t) => {
             const active = activeTab === t.id;
             return (
@@ -246,32 +246,31 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => setActiveTab(t.id)}
-                className="relative inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0"
+                className="relative inline-flex items-center gap-1.5 py-2.5 font-medium transition-colors whitespace-nowrap shrink-0 hover:opacity-90"
                 style={{
                   color: active ? 'var(--zp-text-primary)' : 'var(--zp-text-secondary)',
                 }}
               >
+                {t.icon && (
+                  <span style={{ color: active ? 'var(--zp-accent)' : 'currentColor' }}>
+                    {t.icon}
+                  </span>
+                )}
+                <span>{t.label}</span>
                 {active && (
-                  <motion.div
-                    layoutId="response-viewer-tab-pill"
-                    transition={{ type: 'spring', stiffness: 450, damping: 34 }}
-                    className="absolute inset-0 rounded-lg border"
-                    style={{
-                      backgroundColor: 'var(--zp-bg-elevated)',
-                      borderColor: 'var(--zp-border)',
-                    }}
+                  <span
+                    className="absolute bottom-0 left-0 right-0 h-[2px]"
+                    style={{ backgroundColor: 'var(--zp-accent)' }}
                   />
                 )}
-                {t.icon && <span className="relative z-10">{t.icon}</span>}
-                <span className="relative z-10">{t.label}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Right: Clean Unboxed Metadata with Typographic Separators + Copy/Download */}
-        <div className="flex items-center gap-2 text-xs shrink-0">
-          <span className={`inline-flex items-center gap-1 font-semibold ${statusColorClass}`}>
+        {/* Right: Clean Unboxed Metadata with Typographic Separators + Unified 6px Action Buttons */}
+        <div className="flex items-center gap-2 py-1.5 text-xs shrink-0">
+          <span className={`inline-flex items-center gap-1 font-mono-tabular font-semibold ${statusColorClass}`}>
             {isSuccessStatus ? (
               <CheckCircle2 className="w-3.5 h-3.5" />
             ) : (
@@ -287,7 +286,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
             ·
           </span>
           <span
-            className="inline-flex items-center gap-1"
+            className="inline-flex items-center gap-1 font-mono-tabular"
             style={{ color: 'var(--zp-text-secondary)' }}
             title={`首字节 (TTFB): ${response.timing.ttfbMs} ms | 下载耗时: ${response.timing.downloadMs} ms`}
           >
@@ -298,7 +297,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
             ·
           </span>
           <span
-            className="inline-flex items-center gap-1"
+            className="inline-flex items-center gap-1 font-mono-tabular"
             style={{ color: 'var(--zp-text-secondary)' }}
           >
             <HardDrive className="w-3 h-3" />
@@ -310,9 +309,9 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
           <button
             type="button"
             onClick={handleCopyBody}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border transition-colors whitespace-nowrap shrink-0 hover:opacity-85"
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[6px] border transition-colors whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
             style={{
-              borderColor: 'var(--zp-border)',
+              borderColor: 'var(--zp-border-subtle)',
               backgroundColor: 'var(--zp-bg-canvas)',
               color: 'var(--zp-text-secondary)',
             }}
@@ -328,9 +327,9 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
           <button
             type="button"
             onClick={handleDownloadBody}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border transition-colors whitespace-nowrap shrink-0 hover:opacity-85"
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[6px] border transition-colors whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
             style={{
-              borderColor: 'var(--zp-border)',
+              borderColor: 'var(--zp-border-subtle)',
               backgroundColor: 'var(--zp-bg-canvas)',
               color: 'var(--zp-text-secondary)',
             }}
@@ -343,9 +342,9 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
             <button
               type="button"
               onClick={onToggleExpand}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border transition-colors whitespace-nowrap shrink-0 hover:opacity-85"
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[6px] border transition-colors whitespace-nowrap shrink-0 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
               style={{
-                borderColor: 'var(--zp-border)',
+                borderColor: isExpanded ? 'var(--zp-accent)' : 'var(--zp-border-subtle)',
                 backgroundColor: isExpanded ? 'var(--zp-accent-soft)' : 'var(--zp-bg-canvas)',
                 color: isExpanded ? 'var(--zp-accent)' : 'var(--zp-text-secondary)',
               }}
@@ -426,7 +425,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                       <button
                         type="button"
                         onClick={() => setJsonPathQuery('')}
-                        className="text-xs px-1.5 py-0.5 rounded hover:opacity-80 whitespace-nowrap shrink-0"
+                        className="text-xs px-2 py-0.5 rounded-[6px] hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
                         style={{ color: 'var(--zp-text-muted)' }}
                       >
                         清除
@@ -441,7 +440,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                         value={envVarNameInput}
                         onChange={(e) => setEnvVarNameInput(e.target.value)}
                         placeholder="保存为变量名 (如 token)"
-                        className="px-2.5 py-1 rounded-lg border font-mono-tabular text-xs focus:outline-none w-40"
+                        className="h-7 px-2.5 rounded-[6px] border font-mono-tabular text-xs focus:outline-none focus:border-[var(--zp-accent)] w-40"
                         style={{
                           backgroundColor: 'var(--zp-bg-input)',
                           borderColor: 'var(--zp-border)',
@@ -451,7 +450,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                       <button
                         type="button"
                         onClick={handleSaveQueriedToEnv}
-                        className="px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap shrink-0"
+                        className="h-7 px-3 rounded-[6px] text-xs font-medium whitespace-nowrap shrink-0 hover:opacity-90"
                         style={{
                           backgroundColor: 'var(--zp-accent)',
                           color: 'var(--zp-accent-fg)',
@@ -638,7 +637,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                   {response.cookies.map((cookieStr, idx) => (
                     <div
                       key={idx}
-                      className="p-3 rounded-xl border font-mono-tabular text-xs break-all"
+                      className="p-3 rounded-[8px] border font-mono-tabular text-xs break-all"
                       style={{
                         backgroundColor: 'var(--zp-bg-surface)',
                         borderColor: 'var(--zp-border)',
@@ -656,7 +655,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
           {activeTab === 'tests' && (
             <div className="flex-1 overflow-auto p-4 space-y-5">
               <div
-                className="p-3.5 rounded-xl border"
+                className="p-3.5 rounded-[8px] border"
                 style={{
                   backgroundColor: 'var(--zp-bg-surface)',
                   borderColor: 'var(--zp-border)',
@@ -717,7 +716,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                     {response.assertionResults.map((res) => (
                       <div
                         key={res.id}
-                        className="flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-xl border text-xs"
+                        className="flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-[8px] border text-xs"
                         style={{
                           backgroundColor: 'var(--zp-bg-surface)',
                           borderColor: 'var(--zp-border)',

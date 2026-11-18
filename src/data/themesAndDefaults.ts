@@ -193,7 +193,7 @@ export const INITIAL_REQUESTS: ApiRequestItem[] = [
     method: 'GET',
     url: '{{httpbinUrl}}/get',
     params: [
-      { id: 'p1', key: 'client', value: 'openPost', description: '客户端标识', enabled: true },
+      { id: 'p1', key: 'client', value: 'OpenPost', description: '客户端标识', enabled: true },
       { id: 'p2', key: 'request_id', value: '{{$guid}}', description: '动态 UUID', enabled: true },
     ],
     headers: [
@@ -213,7 +213,7 @@ export const INITIAL_REQUESTS: ApiRequestItem[] = [
     },
     assertions: [
       { id: 'a1', enabled: true, type: 'status_eq', target: 'status', expected: '200' },
-      { id: 'a2', enabled: true, type: 'json_path_eq', target: 'args.client', expected: 'openPost' },
+      { id: 'a2', enabled: true, type: 'json_path_eq', target: 'args.client', expected: 'OpenPost' },
     ],
     description: '发送真实 GET 请求至 https://httpbin.org/get，检验 Query 参数解析、请求头回显与状态码断言。',
   },
@@ -234,7 +234,7 @@ export const INITIAL_REQUESTS: ApiRequestItem[] = [
       type: 'json',
       json: JSON.stringify(
         {
-          service: 'openPost',
+          service: 'OpenPost',
           timestamp: '{{$timestamp}}',
           traceId: '{{$guid}}',
         },
@@ -249,7 +249,7 @@ export const INITIAL_REQUESTS: ApiRequestItem[] = [
     },
     assertions: [
       { id: 'a10', enabled: true, type: 'status_eq', target: 'status', expected: '200' },
-      { id: 'a11', enabled: true, type: 'json_path_eq', target: 'json.service', expected: 'openPost' },
+      { id: 'a11', enabled: true, type: 'json_path_eq', target: 'json.service', expected: 'OpenPost' },
     ],
     description: '向 https://httpbin.org/post 发送真实 JSON 请求体并验证服务端解析结果。',
   },

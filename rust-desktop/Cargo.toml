@@ -1,12 +1,12 @@
 [package]
-name = "openPost"
+name = "OpenPost"
 version = "2.0.2"
 edition = "2021"
-description = "openPost 100% Local-First Native Rust Desktop Core Engine (tao + wry + ureq + serde)"
+description = "OpenPost 100% Local-First Native Rust Desktop Core Engine (tao + wry + ureq + serde)"
 license = "Apache-2.0"
 
 [[bin]]
-name = "openPost"
+name = "OpenPost"
 path = "src/main.rs"
 
 [profile.release]

@@ -147,7 +147,7 @@ async function startServer() {
   app.use(express.text({ type: ['text/*', 'application/xml', 'application/graphql'], limit: '50mb' }));
 
   app.get('/api/health', (_req: Request, res: Response) => {
-    res.status(200).json({ ok: true, engine: 'openPost-Local-Runtime', version: '2.0.2' });
+    res.status(200).json({ ok: true, engine: 'OpenPost-Local-Runtime', version: '2.0.2' });
   });
 
   // ============================================================================
@@ -158,10 +158,10 @@ async function startServer() {
     const homedir = os.homedir();
     const suggestedPaths = [
       DEFAULT_VAULT_DIR,
-      path.join(homedir, 'openPost_Vault'),
-      'D:\\openPost_Data\\Vault',
-      'E:\\openPost_Data\\Vault',
-      '/Volumes/ExternalSSD/openPost_Vault',
+      path.join(homedir, 'OpenPost_Vault'),
+      'D:\\OpenPost_Data\\Vault',
+      'E:\\OpenPost_Data\\Vault',
+      '/Volumes/ExternalSSD/OpenPost_Vault',
       '/mnt/data/openpost_vault',
     ];
 
@@ -401,7 +401,7 @@ async function startServer() {
       }
 
       if (!outgoingHeaders['User-Agent'] && !outgoingHeaders['user-agent']) {
-        outgoingHeaders['User-Agent'] = 'openPost-LocalRuntime/2.0 (No-Telemetry; Cross-Platform)';
+        outgoingHeaders['User-Agent'] = 'OpenPost-LocalRuntime/2.0 (No-Telemetry; Cross-Platform)';
       }
 
       const upperMethod = String(method).toUpperCase();
@@ -492,7 +492,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`openPost Local API Engine running on http://0.0.0.0:${PORT}`);
+    console.log(`OpenPost Local API Engine running on http://0.0.0.0:${PORT}`);
   });
 }
 

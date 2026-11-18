@@ -871,7 +871,7 @@ export function exportWorkspaceBundle(
   return JSON.stringify(
     {
       info: {
-        name: 'openPost Local API Vault',
+        name: 'OpenPost Local API Vault',
         description: '100% Local-First Zero-Backdoor API Workspace (Postman v2.1 Compatible)',
         schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
         exportedAt: new Date().toISOString(),

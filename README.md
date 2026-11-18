@@ -1,25 +1,25 @@
 <p align="left">
-  <img src="public/icons/openpost_icon_pack/png/transparent/openpost-128-transparent.png" width="76" height="76" alt="openPost Logo" />
+  <img src="public/icons/openpost_icon_pack/png/transparent/openpost-128-transparent.png" width="76" height="76" alt="OpenPost Logo" />
 </p>
 
-# openPost
+# OpenPost
 
 > **100% 纯本地运行 · 免登录 · 零后门 · 支持自定义磁盘目录的跨平台 API 调试与自动化测试工作台**  
 > A 100% Local-First, Zero-Login, Zero-Telemetry Postman Alternative for **Windows**, **macOS**, and **Linux**.
 
 ---
 
-## 为什么选择 openPost？
+## 为什么选择 OpenPost？
 
 传统 API 调试客户端（如新版 Postman）逐渐演变为强制登录、强制云端同步、后台静默常驻服务并强行占用系统盘（`C:\Users\AppData`）的重型云软件，对于企业内网接口、私有密钥与本地大模型联调存在严重的隐私与合规隐患。
 
-**openPost** 专为追求纯净、极速与数据主权的开发者设计：
+**OpenPost** 专为追求纯净、极速与数据主权的开发者设计：
 
-| 核心维度 | 传统云端 API 客户端 | **openPost (`OP`)** |
+| 核心维度 | 传统云端 API 客户端 | **OpenPost (`OP`)** |
 | :--- | :--- | :--- |
 | **账号与登录** | 强制注册登录，不登录限制核心集合功能 | **100% 免登录**，下载即用，无任何账户体系 |
 | **数据主权与后门** | 环境变量、API 密钥与历史自动同步云端服务器 | **零遥测、零云端同步、零后台驻留进程** |
-| **磁盘空间占用** | 强制写入系统默认盘（如 C 盘），长期膨胀难以清理 | **支持自定义任意非系统盘存储目录**（如 `D:\openPost_Data\Vault`），支持一键迁移与清理旧目录 |
+| **磁盘空间占用** | 强制写入系统默认盘（如 C 盘），长期膨胀难以清理 | **支持自定义任意非系统盘存储目录**（如 `D:\OpenPost_Data\Vault`），支持一键迁移与清理旧目录 |
 | **跨域 (CORS) 联调** | 依赖安装浏览器插件或登录云端代理 | **内置本地 Node 无跨域代理引擎**，支持任意自定义受限 Header |
 | **多端支持** | 体积臃肿（数百 MB Electron 壳） | 原生支持 **Windows / macOS / Linux**，内置 GitHub Actions 三端自动打包矩阵 |
 
@@ -73,7 +73,7 @@
 - **全局字体大小调节**：支持 `紧凑 (13px)`、`标准 (15px · 默认)`、`舒适 (16px)`、`大字号 (17.5px)` 四档实时无感缩放。
 
 ### 6. 自定义数据存储目录 & Postman v2.1 无损迁移
-- **自定义非系统盘存储**：可在「偏好设置 (`⚙`) -> 数据存储目录」中指定任意磁盘路径（如 `D:\openPost_Data\Vault`、`/Volumes/ExternalSSD/openPost_Vault` 或 `/mnt/data/openpost_vault`），支持自动迁移现有集合并清理原默认目录。
+- **自定义非系统盘存储**：可在「偏好设置 (`⚙`) -> 数据存储目录」中指定任意磁盘路径（如 `D:\OpenPost_Data\Vault`、`/Volumes/ExternalSSD/OpenPost_Vault` 或 `/mnt/data/openpost_vault`），支持自动迁移现有集合并清理原默认目录。
 - **零成本迁移**：
   - 支持直接粘贴终端或浏览器 DevTools 复制的 **cURL 命令** 一键解析为可视化请求；
   - 支持导入与导出 **Postman Collection v2.1** 标准 JSON 文件；
@@ -118,9 +118,9 @@ npm run build:desktop
 
 | 目标平台 | GitHub Runner | 产物归档名称 | 包含启动器 |
 | :--- | :--- | :--- | :--- |
-| **Windows (x64)** | `windows-latest` | `openPost-Windows-x64.zip` | `openPost-Windows.bat` + 独立运行引擎 |
-| **macOS (Apple Silicon & Intel)** | `macos-latest` | `openPost-macOS-Universal.tar.gz` | `openPost-macOS.command` + 独立运行引擎 |
-| **Linux (x64)** | `ubuntu-latest` | `openPost-Linux-x64.tar.gz` | `openPost-Linux.sh` + 独立运行引擎 |
+| **Windows (x64)** | `windows-latest` | `OpenPost-Windows-x64.zip` | `OpenPost-Windows.bat` + 独立运行引擎 |
+| **macOS (Apple Silicon & Intel)** | `macos-latest` | `OpenPost-macOS-Universal.tar.gz` | `OpenPost-macOS.command` + 独立运行引擎 |
+| **Linux (x64)** | `ubuntu-latest` | `OpenPost-Linux-x64.tar.gz` | `OpenPost-Linux.sh` + 独立运行引擎 |
 
 ### 触发方式
 1. **日常构建验证与产物下载**：推送代码至 `main` 或 `master` 分支，或者在 GitHub 仓库的 **Actions** 页面手动点击 `Run workflow`，即可在 Workflow Artifacts 中直接下载 Windows / macOS / Linux 三端压缩包。
@@ -136,7 +136,7 @@ npm run build:desktop
 ## 项目目录结构
 
 ```text
-openPost/
+OpenPost/
 ├── .github/
 │   └── workflows/
 │       └── release.yml            # GitHub Actions Win/macOS/Linux 三端矩阵打包工作流

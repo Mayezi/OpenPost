@@ -116,7 +116,7 @@ jobs:
           InstallDir "`$LOCALAPPDATA\Programs\OpenPost"
           InstallDirRegKey HKCU "Software\OpenPost" "Install_Dir"
           RequestExecutionLevel user
-          BrandingText "OpenPost v2.0.2 Native Rust Desktop Engine"
+          BrandingText "OpenPost v2.0.3 Native Rust Desktop Engine"
 
           !define MUI_ICON "$icoPath"
           !define MUI_UNICON "$icoPath"
@@ -144,7 +144,7 @@ jobs:
             WriteUninstaller "`$INSTDIR\Uninstall.exe"
 
             WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayName" "OpenPost - Local-First API Studio"
-            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayVersion" "2.0.2"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayVersion" "2.0.3"
             WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "Publisher" "OpenPost Contributors"
             WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayIcon" "`$INSTDIR\OpenPost.exe"
             WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "InstallLocation" "`$INSTDIR"
@@ -221,9 +221,9 @@ jobs:
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
-            <string>2.0.2</string>
+            <string>2.0.3</string>
             <key>CFBundleVersion</key>
-            <string>2.0.2</string>
+            <string>2.0.3</string>
             <key>NSHighResolutionCapable</key>
             <true/>
           </dict>
@@ -238,7 +238,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-dist
-          DEB_DIR="deb-staging/openpost_2.0.2_amd64"
+          DEB_DIR="deb-staging/openpost_2.0.3_amd64"
           mkdir -p "$DEB_DIR/DEBIAN"
           mkdir -p "$DEB_DIR/usr/bin"
           mkdir -p "$DEB_DIR/usr/share/applications"
@@ -250,7 +250,7 @@ jobs:
 
           cat > "$DEB_DIR/DEBIAN/control" <<EOF
           Package: openpost
-          Version: 2.0.2
+          Version: 2.0.3
           Section: devel
           Priority: optional
           Architecture: amd64
@@ -287,7 +287,7 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             REL_TAG="${GITHUB_REF_NAME}"
           else
-            REL_TAG="v2.0.2"
+            REL_TAG="v2.0.3"
           fi
           gh release view "$REL_TAG" >/dev/null 2>&1 || gh release create "$REL_TAG" --title "OpenPost $REL_TAG (Native Desktop Installers)" --notes "直接点击下方对应的原生安装包即可下载安装（基于 tao + wry 原生桌面窗口架构，无需解压）：
           - **Windows 安装向导版 (NSIS Setup)**: \`OpenPost-Windows-x64-Setup.exe\`

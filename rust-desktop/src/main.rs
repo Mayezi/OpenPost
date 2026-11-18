@@ -755,7 +755,7 @@ fn handle_client(
             &json!({
                 "ok": true,
                 "engine": "OpenPost-Rust-Native-Core",
-                "version": "2.0.2"
+                "version": "2.0.3"
             }),
         );
         return;

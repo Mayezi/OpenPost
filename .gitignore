@@ -3,6 +3,8 @@ build/
 dist/
 release-dist/
 rust-desktop/target/
+Cargo.lock
+rust-desktop/Cargo.lock
 openpost_vault/
 zeropost_vault/
 package-lock.json

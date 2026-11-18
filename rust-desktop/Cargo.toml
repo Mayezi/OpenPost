@@ -1,6 +1,6 @@
 [package]
 name = "OpenPost"
-version = "2.0.2"
+version = "2.0.3"
 edition = "2021"
 description = "OpenPost 100% Local-First Native Rust Desktop Core Engine (tao + wry + ureq + serde)"
 license = "Apache-2.0"

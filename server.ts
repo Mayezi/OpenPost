@@ -147,7 +147,7 @@ async function startServer() {
   app.use(express.text({ type: ['text/*', 'application/xml', 'application/graphql'], limit: '50mb' }));
 
   app.get('/api/health', (_req: Request, res: Response) => {
-    res.status(200).json({ ok: true, engine: 'OpenPost-Local-Runtime', version: '2.0.2' });
+    res.status(200).json({ ok: true, engine: 'OpenPost-Local-Runtime', version: '2.0.3' });
   });
 
   // ============================================================================

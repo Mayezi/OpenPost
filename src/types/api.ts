@@ -1,4 +1,19 @@
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
+export type HttpMethod =
+  | 'GET'
+  | 'POST'
+  | 'PUT'
+  | 'PATCH'
+  | 'DELETE'
+  | 'COPY'
+  | 'HEAD'
+  | 'OPTIONS'
+  | 'LINK'
+  | 'UNLINK'
+  | 'PURGE'
+  | 'LOCK'
+  | 'UNLOCK'
+  | 'PROPFIND'
+  | 'VIEW';
 
 export interface KeyValueItem {
   id: string;
@@ -8,14 +23,108 @@ export interface KeyValueItem {
   enabled: boolean;
 }
 
+export type AuthType =
+  | 'inherit'
+  | 'none'
+  | 'apikey'
+  | 'bearer'
+  | 'jwt'
+  | 'basic'
+  | 'digest'
+  | 'oauth1'
+  | 'oauth2'
+  | 'hawk'
+  | 'awsv4'
+  | 'ntlm'
+  | 'edgegrid';
+
 export interface AuthConfig {
-  type: 'none' | 'bearer' | 'basic' | 'apikey';
+  type: AuthType;
+  // Bearer
   bearerToken?: string;
+  // Basic
   basicUsername?: string;
   basicPassword?: string;
+  // API Key
   apiKeyName?: string;
   apiKeyValue?: string;
   apiKeyIn?: 'header' | 'query';
+  // JWT Bearer
+  jwtAddTo?: 'header' | 'query';
+  jwtAlgorithm?: 'HS256' | 'HS384' | 'HS512' | 'none';
+  jwtSecret?: string;
+  jwtSecretBase64?: boolean;
+  jwtPayload?: string;
+  jwtHeaderPrefix?: string;
+  jwtQueryParamName?: string;
+  jwtHeadersJson?: string;
+  // Digest Auth
+  digestUsername?: string;
+  digestPassword?: string;
+  digestRealm?: string;
+  digestNonce?: string;
+  digestAlgorithm?: 'MD5' | 'MD5-sess' | 'SHA-256' | 'SHA-256-sess' | 'SHA-512-256';
+  digestQop?: string;
+  digestNc?: string;
+  digestCnonce?: string;
+  digestOpaque?: string;
+  digestDisableRetry?: boolean;
+  // OAuth 1.0
+  oauth1AddTo?: 'header' | 'query';
+  oauth1SignatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT';
+  oauth1ConsumerKey?: string;
+  oauth1ConsumerSecret?: string;
+  oauth1Token?: string;
+  oauth1TokenSecret?: string;
+  oauth1Callback?: string;
+  oauth1Verifier?: string;
+  oauth1Timestamp?: string;
+  oauth1Nonce?: string;
+  oauth1Version?: string;
+  oauth1Realm?: string;
+  // OAuth 2.0
+  oauth2Token?: string;
+  oauth2HeaderPrefix?: string;
+  oauth2AddTo?: 'header' | 'query';
+  oauth2GrantType?: 'client_credentials' | 'password' | 'authorization_code';
+  oauth2AccessTokenUrl?: string;
+  oauth2ClientId?: string;
+  oauth2ClientSecret?: string;
+  oauth2Scope?: string;
+  oauth2Username?: string;
+  oauth2Password?: string;
+  oauth2Code?: string;
+  oauth2RedirectUri?: string;
+  // Hawk Authentication
+  hawkId?: string;
+  hawkKey?: string;
+  hawkAlgorithm?: 'sha256' | 'sha1';
+  hawkUser?: string;
+  hawkNonce?: string;
+  hawkExt?: string;
+  hawkApp?: string;
+  hawkDlg?: string;
+  // AWS Signature v4
+  awsAddTo?: 'header' | 'query';
+  awsAccessKey?: string;
+  awsSecretKey?: string;
+  awsRegion?: string;
+  awsService?: string;
+  awsSessionToken?: string;
+  // NTLM Authentication
+  ntlmUsername?: string;
+  ntlmPassword?: string;
+  ntlmDomain?: string;
+  ntlmWorkstation?: string;
+  ntlmDisableRetry?: boolean;
+  // Akamai EdgeGrid
+  edgegridAccessToken?: string;
+  edgegridClientToken?: string;
+  edgegridClientSecret?: string;
+  edgegridNonce?: string;
+  edgegridTimestamp?: string;
+  edgegridBaseUrl?: string;
+  edgegridHeadersToSign?: string;
 }
 
 export interface RequestBodyConfig {
@@ -64,6 +173,7 @@ export interface CollectionFolder {
   name: string;
   description?: string;
   expanded?: boolean;
+  auth?: AuthConfig;
 }
 
 export interface EnvironmentProfile {
@@ -135,3 +245,17 @@ export interface ThemePalette {
     codeBg: string;
   };
 }
+
+export type ProxyMode = 'none' | 'system' | 'custom';
+export type ProxyProtocol = 'http' | 'https' | 'socks5';
+
+export interface ProxyConfig {
+  mode: ProxyMode;
+  protocol: ProxyProtocol;
+  host: string;
+  port: string;
+  username?: string;
+  password?: string;
+  bypass?: string;
+}
+

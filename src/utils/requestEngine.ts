@@ -8,6 +8,12 @@ import {
   HttpMethod,
   KeyValueItem,
 } from '../types/api';
+import {
+  buildDigestAuthorizationHeader,
+  buildNtlmType3Header,
+  computeAuthArtifacts,
+  parseDigestChallenge,
+} from './authEngine';
 
 /**
  * Resolves {{variable}} placeholders using active environment variables
@@ -118,6 +124,14 @@ export function buildResolvedHeaders(
     const k = interpolateString(req.auth.apiKeyName.trim(), env);
     const v = interpolateString(req.auth.apiKeyValue || '', env);
     headers[k] = v;
+  } else if (
+    req.auth.type === 'oauth2' &&
+    req.auth.oauth2AddTo !== 'query' &&
+    req.auth.oauth2Token?.trim()
+  ) {
+    const token = interpolateString(req.auth.oauth2Token.trim(), env);
+    const prefix = (interpolateString(req.auth.oauth2HeaderPrefix || 'Bearer', env) || 'Bearer').trim();
+    headers['Authorization'] = prefix ? `${prefix} ${token}` : token;
   }
 
   // Ensure Content-Type if body is active and not already set
@@ -332,27 +346,132 @@ export function evaluateAssertions(
 export async function executeApiRequest(
   req: ApiRequestItem,
   env: EnvironmentProfile | null,
-  engine: 'local-proxy' | 'browser-direct' = 'local-proxy'
+  engine: 'local-proxy' | 'browser-direct' = 'local-proxy',
+  folders?: CollectionFolder[]
 ): Promise<ApiResponseData> {
-  const finalUrl = buildResolvedUrl(req, env);
+  let finalUrl = buildResolvedUrl(req, env);
   const finalHeaders = buildResolvedHeaders(req, env);
   const finalBody = buildResolvedBody(req, env);
+
+  const authArtifacts = await computeAuthArtifacts(
+    req,
+    finalUrl,
+    req.method,
+    finalHeaders,
+    finalBody,
+    env,
+    folders
+  );
+
+  for (const [k, v] of Object.entries(authArtifacts.extraHeaders)) {
+    finalHeaders[k] = v;
+  }
+  if (authArtifacts.extraQueryParams.length > 0 && finalUrl) {
+    const [basePart, queryPart] = finalUrl.split('?');
+    const sp = new URLSearchParams(queryPart || '');
+    for (const [qk, qv] of authArtifacts.extraQueryParams) {
+      // Avoid duplicating query-based API key already appended by buildResolvedUrl
+      if (
+        authArtifacts.effectiveAuth.type === 'apikey' &&
+        req.auth.type === 'apikey' &&
+        qk === interpolateString(req.auth.apiKeyName?.trim() || '', env)
+      ) {
+        continue;
+      }
+      sp.append(qk, qv);
+    }
+    const qs = sp.toString();
+    finalUrl = qs ? `${basePart}?${qs}` : basePart;
+  }
+
   const configuredTimeoutMs = Number(localStorage.getItem('openpost_timeout_ms')) || 30000;
+  const verifySsl = localStorage.getItem('openpost_verify_ssl') !== 'false';
+  let proxyConfig: unknown = undefined;
+  try {
+    const rawProxy = localStorage.getItem('openpost_proxy_config');
+    if (rawProxy) {
+      proxyConfig = JSON.parse(rawProxy);
+    }
+  } catch {
+    proxyConfig = undefined;
+  }
 
   if (engine === 'local-proxy') {
-    const proxyRes = await fetch('/api/proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: finalUrl,
-        method: req.method,
-        headers: finalHeaders,
-        body: finalBody,
-        timeoutMs: configuredTimeoutMs,
-      }),
-    });
+    const sendViaProxy = async (headersToSend: Record<string, string>) => {
+      const proxyRes = await fetch('/api/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: finalUrl,
+          method: req.method,
+          headers: headersToSend,
+          body: finalBody,
+          timeoutMs: configuredTimeoutMs,
+          verifySsl,
+          proxy: proxyConfig,
+        }),
+      });
+      return proxyRes.json();
+    };
 
-    const data = await proxyRes.json();
+    let data = await sendViaProxy(finalHeaders);
+
+    // Automatic 401 Digest / NTLM Challenge-Response Retry (like Postman)
+    if (data.status === 401 && authArtifacts.challengeMode && data.headers) {
+      const wwwAuthEntry = Object.entries(data.headers as Record<string, string>).find(
+        ([k]) => k.toLowerCase() === 'www-authenticate'
+      );
+      const wwwAuthVal = wwwAuthEntry ? String(wwwAuthEntry[1]) : '';
+
+      if (authArtifacts.challengeMode === 'digest' && /digest/i.test(wwwAuthVal)) {
+        const challenge = parseDigestChallenge(wwwAuthVal);
+        if (challenge.realm && challenge.nonce) {
+          let uriPath = '/';
+          try {
+            const u = new URL(finalUrl);
+            uriPath = `${u.pathname}${u.search}`;
+          } catch {
+            uriPath = finalUrl || '/';
+          }
+          const eff = authArtifacts.effectiveAuth;
+          const retryHeaders = {
+            ...finalHeaders,
+            Authorization: await buildDigestAuthorizationHeader({
+              username: interpolateString(eff.digestUsername || '', env),
+              password: interpolateString(eff.digestPassword || '', env),
+              method: req.method,
+              uri: uriPath,
+              realm: challenge.realm,
+              nonce: challenge.nonce,
+              algorithm: eff.digestAlgorithm || challenge.algorithm || 'MD5',
+              qop: eff.digestQop || challenge.qop,
+              nc: eff.digestNc || '00000001',
+              cnonce: eff.digestCnonce,
+              opaque: eff.digestOpaque || challenge.opaque,
+              body: finalBody,
+            }),
+          };
+          data = await sendViaProxy(retryHeaders);
+        }
+      } else if (authArtifacts.challengeMode === 'ntlm' && /ntlm\s+[a-zA-Z0-9+/=]+/i.test(wwwAuthVal)) {
+        const match = wwwAuthVal.match(/ntlm\s+([a-zA-Z0-9+/=]+)/i);
+        if (match && match[1]) {
+          const eff = authArtifacts.effectiveAuth;
+          const retryHeaders = {
+            ...finalHeaders,
+            Authorization: buildNtlmType3Header({
+              type2Base64: match[1],
+              username: interpolateString(eff.ntlmUsername || '', env),
+              password: interpolateString(eff.ntlmPassword || '', env),
+              domain: interpolateString(eff.ntlmDomain || '', env),
+              workstation: interpolateString(eff.ntlmWorkstation || '', env),
+            }),
+          };
+          data = await sendViaProxy(retryHeaders);
+        }
+      }
+    }
+
     const { results, extractedVars } = evaluateAssertions(req.assertions || [], {
       status: data.status || 0,
       headers: data.headers || {},
@@ -580,7 +699,26 @@ export function parseCurlCommand(curlInput: string, targetFolderId: string): Api
 
     if (t === '-X' || t === '--request') {
       const next = tokens[++i]?.toUpperCase();
-      if (next && ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(next)) {
+      if (
+        next &&
+        [
+          'GET',
+          'POST',
+          'PUT',
+          'PATCH',
+          'DELETE',
+          'COPY',
+          'HEAD',
+          'OPTIONS',
+          'LINK',
+          'UNLINK',
+          'PURGE',
+          'LOCK',
+          'UNLOCK',
+          'PROPFIND',
+          'VIEW',
+        ].includes(next)
+      ) {
         method = next as HttpMethod;
         explicitMethod = true;
       }

@@ -17,7 +17,7 @@ import {
   RefreshCw,
   Sun,
   Moon,
-  Sparkles,
+  Network,
 } from 'lucide-react';
 import {
   ApiRequestItem,
@@ -25,6 +25,9 @@ import {
   EnvironmentProfile,
   HistoryEntry,
   HttpMethod,
+  ProxyConfig,
+  ProxyMode,
+  ProxyProtocol,
   ThemePalette,
 } from '../types/api';
 import { KeyValueTable } from './KeyValueTable';
@@ -82,7 +85,6 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
   history,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
-  const [themeModeFilter, setThemeModeFilter] = useState<'all' | 'dark' | 'light'>('all');
 
   // Storage directory state
   const [pathInput, setPathInput] = useState(customStoragePath);
@@ -103,7 +105,17 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
   const [storageStatusMsg, setStorageStatusMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [syncingDisk, setSyncingDisk] = useState(false);
 
-  // Network settings
+  const DEFAULT_PROXY: ProxyConfig = {
+    mode: 'none',
+    protocol: 'http',
+    host: '127.0.0.1',
+    port: '7890',
+    username: '',
+    password: '',
+    bypass: 'localhost,127.0.0.1,::1',
+  };
+
+  // Network & Proxy settings
   const [timeoutMs, setTimeoutMs] = useState(
     () => localStorage.getItem('openpost_timeout_ms') || '30000'
   );
@@ -113,15 +125,30 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
   const [maxHistoryItems, setMaxHistoryItems] = useState(
     () => localStorage.getItem('openpost_max_history') || '100'
   );
+  const [proxyConfig, setProxyConfig] = useState<ProxyConfig>(() => {
+    try {
+      const saved = localStorage.getItem('openpost_proxy_config');
+      return saved ? { ...DEFAULT_PROXY, ...JSON.parse(saved) } : DEFAULT_PROXY;
+    } catch {
+      return DEFAULT_PROXY;
+    }
+  });
+  const [proxyTestStatus, setProxyTestStatus] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+  const [testingProxy, setTestingProxy] = useState(false);
 
   const persistNetworkConfig = (
     nextTimeout: string,
     nextMaxHist: string,
-    nextVerifySsl: boolean
+    nextVerifySsl: boolean,
+    nextProxy: ProxyConfig = proxyConfig
   ) => {
     localStorage.setItem('openpost_timeout_ms', nextTimeout);
     localStorage.setItem('openpost_max_history', nextMaxHist);
     localStorage.setItem('openpost_verify_ssl', String(nextVerifySsl));
+    localStorage.setItem('openpost_proxy_config', JSON.stringify(nextProxy));
     fetch('/api/storage/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -131,15 +158,48 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
         maxHistoryItems: Number(nextMaxHist) || 100,
         requestTimeoutMs: Number(nextTimeout) || 30000,
         verifySsl: nextVerifySsl,
+        proxy: nextProxy,
         migrateExisting: false,
         cleanOldDir: false,
       }),
     }).catch(() => {});
   };
 
+  const updateProxyField = <K extends keyof ProxyConfig>(key: K, val: ProxyConfig[K]) => {
+    const next = { ...proxyConfig, [key]: val };
+    setProxyConfig(next);
+    setProxyTestStatus(null);
+    persistNetworkConfig(timeoutMs, maxHistoryItems, verifySsl, next);
+  };
+
+  const handleTestProxyConnection = async () => {
+    setTestingProxy(true);
+    setProxyTestStatus(null);
+    try {
+      const res = await fetch('/api/proxy/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proxy: proxyConfig }),
+      });
+      const data = await res.json();
+      setProxyTestStatus({
+        ok: Boolean(data.ok),
+        text: data.ok ? data.message : data.error || '代理连接测试失败',
+      });
+    } catch (e: unknown) {
+      setProxyTestStatus({
+        ok: false,
+        text: `测试请求异常: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setTestingProxy(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
+      setProxyTestStatus(null);
       fetch('/api/storage/config')
         .then((r) => r.json())
         .then((data) => {
@@ -152,6 +212,11 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
             setTimeoutMs(String(data.config.requestTimeoutMs || 30000));
             setVerifySsl(data.config.verifySsl ?? true);
             setMaxHistoryItems(String(data.config.maxHistoryItems || 100));
+            if (data.config.proxy) {
+              const merged = { ...DEFAULT_PROXY, ...data.config.proxy };
+              setProxyConfig(merged);
+              localStorage.setItem('openpost_proxy_config', JSON.stringify(merged));
+            }
             if (data.stats) setDiskStats(data.stats);
             if (Array.isArray(data.suggestedPaths)) setSuggestedPaths(data.suggestedPaths);
           }
@@ -246,9 +311,7 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
     }
   };
 
-  const filteredThemes = themes.filter((t) =>
-    themeModeFilter === 'all' ? true : t.mode === themeModeFilter
-  );
+
 
   const navItems: Array<{ id: SettingsTabId; label: string; sub: string; icon: React.ReactNode }> = [
     {
@@ -308,7 +371,7 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
                   偏好设置与系统工作台 (Preferences)
                 </h2>
                 <p className="text-xs mt-0.5" style={{ color: 'var(--zp-text-muted)' }}>
-                  管理 AI 视觉主题、自定义非系统盘数据存储目录与本地网络引擎
+                  管理界面外观主题、自定义非系统盘数据存储目录与本地网络引擎
                 </p>
               </div>
               <button
@@ -441,53 +504,17 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <h3 className="text-sm font-semibold font-display">
-                            主流 AI 工具与现代 IDE 主题库
-                          </h3>
-                          <p className="text-xs mt-0.5" style={{ color: 'var(--zp-text-secondary)' }}>
-                            包含 5 款经典深色主题与 5 款高对比度浅色日间主题（Claude、GitHub、ChatGPT、DeepSeek、Linear）
-                          </p>
-                        </div>
-
-                        {/* Mode Filter Segmented Control */}
-                        <div
-                          className="flex items-center gap-1 p-1 rounded-xl border text-xs"
-                          style={{
-                            backgroundColor: 'var(--zp-bg-surface)',
-                            borderColor: 'var(--zp-border)',
-                          }}
-                        >
-                          {(
-                            [
-                              { id: 'all', label: '全部 (10)', icon: <Sparkles className="w-3.5 h-3.5" /> },
-                              { id: 'light', label: '浅色 Light (5)', icon: <Sun className="w-3.5 h-3.5" /> },
-                              { id: 'dark', label: '深色 Dark (5)', icon: <Moon className="w-3.5 h-3.5" /> },
-                            ] as const
-                          ).map((f) => {
-                            const active = themeModeFilter === f.id;
-                            return (
-                              <button
-                                key={f.id}
-                                type="button"
-                                onClick={() => setThemeModeFilter(f.id)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0"
-                                style={{
-                                  backgroundColor: active ? 'var(--zp-accent)' : 'transparent',
-                                  color: active ? 'var(--zp-accent-fg)' : 'var(--zp-text-secondary)',
-                                }}
-                              >
-                                {f.icon}
-                                <span>{f.label}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
+                      <div>
+                        <h3 className="text-sm font-semibold font-display">
+                          界面外观配色 (Appearance)
+                        </h3>
+                        <p className="text-xs mt-0.5" style={{ color: 'var(--zp-text-secondary)' }}>
+                          提供简约白昼与深邃暗夜两套高对比度配色，边界清晰且适合长时间接口调试
+                        </p>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                        {filteredThemes.map((theme) => {
+                        {themes.map((theme) => {
                           const isSelected = theme.id === activeThemeId;
                           return (
                             <button
@@ -773,7 +800,7 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
                     </motion.div>
                   )}
 
-                  {/* TAB 3: NETWORK & ENGINE SETTINGS */}
+                  {/* TAB 3: NETWORK, PROXY & ENGINE SETTINGS */}
                   {activeTab === 'network' && (
                     <motion.div
                       key="tab-network"
@@ -785,11 +812,223 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
                     >
                       <div>
                         <h3 className="text-sm font-semibold font-display">
-                          请求执行引擎与网络参数配置
+                          网络代理与请求执行引擎配置
                         </h3>
                         <p className="mt-1" style={{ color: 'var(--zp-text-secondary)' }}>
-                          配置默认请求发送方式、超时阈值及历史记录保留上限
+                          配置 HTTP / HTTPS / SOCKS5 代理服务器、默认请求执行方式、超时阈值及 SSL 校验策略
                         </p>
+                      </div>
+
+                      {/* PROXY CONFIGURATION CARD */}
+                      <div
+                        className="p-4 rounded-xl border space-y-4"
+                        style={{
+                          backgroundColor: 'var(--zp-bg-surface)',
+                          borderColor: 'var(--zp-border)',
+                        }}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <Network className="w-4 h-4 shrink-0" style={{ color: 'var(--zp-accent)' }} />
+                            <div>
+                              <div className="font-semibold text-sm">代理服务器设置 (Network Proxy)</div>
+                              <p className="mt-0.5" style={{ color: 'var(--zp-text-muted)' }}>
+                                仅在「本地无跨域代理引擎」模式下生效，支持 HTTP、HTTPS 与 SOCKS5 代理转发
+                              </p>
+                            </div>
+                          </div>
+
+                          <div
+                            className="flex items-center gap-1 p-1 rounded-xl border text-xs"
+                            style={{
+                              backgroundColor: 'var(--zp-bg-canvas)',
+                              borderColor: 'var(--zp-border)',
+                            }}
+                          >
+                            {(
+                              [
+                                { id: 'none', label: '不使用代理' },
+                                { id: 'system', label: '跟随系统代理' },
+                                { id: 'custom', label: '自定义代理' },
+                              ] as Array<{ id: ProxyMode; label: string }>
+                            ).map((m) => {
+                              const active = proxyConfig.mode === m.id;
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => updateProxyField('mode', m.id)}
+                                  className="px-3 py-1 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0"
+                                  style={{
+                                    backgroundColor: active ? 'var(--zp-accent)' : 'transparent',
+                                    color: active
+                                      ? 'var(--zp-accent-fg)'
+                                      : 'var(--zp-text-secondary)',
+                                  }}
+                                >
+                                  {m.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {proxyConfig.mode === 'system' && (
+                          <div
+                            className="p-3 rounded-lg border leading-relaxed"
+                            style={{
+                              backgroundColor: 'var(--zp-bg-canvas)',
+                              borderColor: 'var(--zp-border-subtle)',
+                              color: 'var(--zp-text-secondary)',
+                            }}
+                          >
+                            将自动读取系统环境变量（<span className="font-semibold">HTTP_PROXY / HTTPS_PROXY / ALL_PROXY</span>）及 Windows 系统代理设置，并自动遵守下方绕过列表。
+                          </div>
+                        )}
+
+                        {proxyConfig.mode === 'custom' && (
+                          <div className="space-y-3 pt-2 border-t" style={{ borderColor: 'var(--zp-border-subtle)' }}>
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+                              <div className="md:col-span-3 space-y-1">
+                                <label className="block font-medium" style={{ color: 'var(--zp-text-secondary)' }}>
+                                  代理协议
+                                </label>
+                                <CustomSelect
+                                  value={proxyConfig.protocol}
+                                  onChange={(v) => updateProxyField('protocol', v as ProxyProtocol)}
+                                  minWidth={120}
+                                  options={[
+                                    { value: 'http', label: 'HTTP' },
+                                    { value: 'https', label: 'HTTPS' },
+                                    { value: 'socks5', label: 'SOCKS5' },
+                                  ]}
+                                />
+                              </div>
+
+                              <div className="md:col-span-6 space-y-1">
+                                <label className="block font-medium" style={{ color: 'var(--zp-text-secondary)' }}>
+                                  代理服务器地址 (Host / IP)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={proxyConfig.host}
+                                  onChange={(e) => updateProxyField('host', e.target.value)}
+                                  placeholder="127.0.0.1"
+                                  className="w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                                  style={{
+                                    backgroundColor: 'var(--zp-bg-input)',
+                                    borderColor: 'var(--zp-border)',
+                                    color: 'var(--zp-text-primary)',
+                                  }}
+                                />
+                              </div>
+
+                              <div className="md:col-span-3 space-y-1">
+                                <label className="block font-medium" style={{ color: 'var(--zp-text-secondary)' }}>
+                                  端口 (Port)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={proxyConfig.port}
+                                  onChange={(e) => updateProxyField('port', e.target.value)}
+                                  placeholder="7890"
+                                  className="w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                                  style={{
+                                    backgroundColor: 'var(--zp-bg-input)',
+                                    borderColor: 'var(--zp-border)',
+                                    color: 'var(--zp-text-primary)',
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                              <div className="space-y-1">
+                                <label className="block font-medium" style={{ color: 'var(--zp-text-secondary)' }}>
+                                  认证用户名（可选）
+                                </label>
+                                <input
+                                  type="text"
+                                  value={proxyConfig.username || ''}
+                                  onChange={(e) => updateProxyField('username', e.target.value)}
+                                  placeholder="无认证可留空"
+                                  className="w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                                  style={{
+                                    backgroundColor: 'var(--zp-bg-input)',
+                                    borderColor: 'var(--zp-border)',
+                                    color: 'var(--zp-text-primary)',
+                                  }}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="block font-medium" style={{ color: 'var(--zp-text-secondary)' }}>
+                                  认证密码（可选）
+                                </label>
+                                <input
+                                  type="password"
+                                  value={proxyConfig.password || ''}
+                                  onChange={(e) => updateProxyField('password', e.target.value)}
+                                  placeholder="无认证可留空"
+                                  className="w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                                  style={{
+                                    backgroundColor: 'var(--zp-bg-input)',
+                                    borderColor: 'var(--zp-border)',
+                                    color: 'var(--zp-text-primary)',
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {proxyConfig.mode !== 'none' && (
+                          <div className="space-y-2.5 pt-2 border-t" style={{ borderColor: 'var(--zp-border-subtle)' }}>
+                            <div className="space-y-1">
+                              <label className="block font-medium" style={{ color: 'var(--zp-text-secondary)' }}>
+                                绕过代理的地址列表 (Bypass Hosts，逗号分隔)
+                              </label>
+                              <input
+                                type="text"
+                                value={proxyConfig.bypass || ''}
+                                onChange={(e) => updateProxyField('bypass', e.target.value)}
+                                placeholder="localhost,127.0.0.1,::1,*.local"
+                                className="w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+                                style={{
+                                  backgroundColor: 'var(--zp-bg-input)',
+                                  borderColor: 'var(--zp-border)',
+                                  color: 'var(--zp-text-primary)',
+                                }}
+                              />
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={handleTestProxyConnection}
+                                disabled={testingProxy}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-medium hover:opacity-85 disabled:opacity-50"
+                                style={{
+                                  borderColor: 'var(--zp-border)',
+                                  backgroundColor: 'var(--zp-bg-canvas)',
+                                  color: 'var(--zp-text-primary)',
+                                }}
+                              >
+                                <RefreshCw className={`w-3.5 h-3.5 ${testingProxy ? 'animate-spin' : ''}`} style={{ color: 'var(--zp-accent)' }} />
+                                <span>{testingProxy ? '正在测试连通性...' : '测试代理连通性'}</span>
+                              </button>
+
+                              {proxyTestStatus && (
+                                <span
+                                  className={`text-xs font-medium ${
+                                    proxyTestStatus.ok ? 'text-emerald-500' : 'text-rose-500'
+                                  }`}
+                                >
+                                  {proxyTestStatus.text}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div
@@ -803,7 +1042,7 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
                           <div>
                             <div className="font-semibold">默认 HTTP 执行引擎</div>
                             <p className="mt-0.5" style={{ color: 'var(--zp-text-muted)' }}>
-                              「本地代理引擎」由本地 Node 进程直接发包，彻底绕过浏览器 CORS 跨域限制并支持自定义受限 Header
+                              「本地代理引擎」由本地引擎进程直接发包，彻底绕过浏览器 CORS 跨域限制并支持自定义代理服务器
                             </p>
                           </div>
                           <CustomSelect
@@ -817,7 +1056,7 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
                               {
                                 value: 'local-proxy',
                                 label: '本地无跨域代理 (Local Proxy)',
-                                sublabel: '推荐：无 CORS 限制，支持任意请求头',
+                                sublabel: '推荐：无 CORS 限制，支持系统/自定义代理',
                                 colorDot: '#10B981',
                               },
                               {

@@ -233,7 +233,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
         onDoubleClick={() => onToggleExpand?.()}
         className="flex flex-wrap items-center justify-between gap-3 px-4 py-1.5 border-b text-xs zp-surface-transition"
         style={{
-          borderColor: 'var(--zp-border)',
+          borderColor: 'var(--zp-border-subtle)',
           backgroundColor: 'var(--zp-bg-surface)',
         }}
       >

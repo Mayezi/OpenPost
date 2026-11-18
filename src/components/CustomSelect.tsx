@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, Check } from 'lucide-react';
 
@@ -24,6 +25,15 @@ interface CustomSelectProps {
   className?: string;
 }
 
+interface PopoverCoords {
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
+  maxHeight: number;
+  minWidth: number;
+}
+
 export const CustomSelect: React.FC<CustomSelectProps> = ({
   value,
   options,
@@ -37,37 +47,196 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   className = '',
 }) => {
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<PopoverCoords>({
+    top: 0,
+    left: 0,
+    maxHeight: 380,
+    minWidth,
+  });
 
   const selected = options.find((o) => o.value === value) || options[0];
+
+  const updateCoords = useCallback(() => {
+    const btn = triggerRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const gap = 6;
+    const margin = 12;
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const openUpward = spaceBelow < 220 && spaceAbove > spaceBelow;
+
+    const effectiveMinWidth = Math.max(minWidth, rect.width);
+    const next: PopoverCoords = {
+      minWidth: effectiveMinWidth,
+      maxHeight: Math.max(160, Math.min(440, (openUpward ? spaceAbove : spaceBelow) - gap)),
+    };
+
+    if (openUpward) {
+      next.bottom = window.innerHeight - rect.top + gap;
+    } else {
+      next.top = rect.bottom + gap;
+    }
+
+    if (align === 'right') {
+      const rightVal = Math.max(margin, window.innerWidth - rect.right);
+      next.right = rightVal;
+    } else {
+      const maxLeft = Math.max(margin, window.innerWidth - effectiveMinWidth - margin);
+      next.left = Math.min(Math.max(margin, rect.left), maxLeft);
+    }
+
+    setCoords(next);
+  }, [align, minWidth]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateCoords();
+  }, [open, updateCoords]);
 
   useEffect(() => {
     if (!open) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
+      const target = e.target as Node;
+      if (
+        triggerRef.current?.contains(target) ||
+        menuRef.current?.contains(target)
+      ) {
+        return;
       }
+      setOpen(false);
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
+    const handleReposition = () => updateCoords();
+
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
     };
-  }, [open]);
+  }, [open, updateCoords]);
 
   const paddingClass =
-    size === 'md' ? 'px-3.5 py-2 text-xs' : 'px-2.5 py-1.5 text-xs';
+    size === 'md' ? 'px-3 py-1.5 text-xs' : 'px-2.5 py-1.5 text-xs';
+
+  const menuNode = (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          ref={menuRef}
+          initial={{ opacity: 0, y: 4, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 3, scale: 0.98 }}
+          transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+          style={{
+            position: 'fixed',
+            zIndex: 9999,
+            top: coords.top,
+            bottom: coords.bottom,
+            left: coords.left,
+            right: coords.right,
+            minWidth: `${coords.minWidth}px`,
+            maxHeight: `${coords.maxHeight}px`,
+            backgroundColor: 'var(--zp-bg-surface)',
+            borderColor: 'var(--zp-border)',
+            color: 'var(--zp-text-primary)',
+          }}
+          className="rounded-xl border p-1.5 zp-popover-shadow overflow-y-auto"
+        >
+          {options.map((opt) => {
+            const isSelected = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  onChange(opt.value);
+                  setOpen(false);
+                }}
+                className="w-full text-left flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-lg text-xs transition-colors"
+                style={{
+                  backgroundColor: isSelected ? 'var(--zp-accent-soft)' : 'transparent',
+                  color: isSelected ? 'var(--zp-accent)' : 'var(--zp-text-primary)',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.backgroundColor = 'var(--zp-bg-elevated)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }
+                }}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {opt.colorDot && (
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0 border border-black/10 dark:border-white/10"
+                      style={{ backgroundColor: opt.colorDot }}
+                    />
+                  )}
+                  <div className="truncate">
+                    <span
+                      className={`block truncate ${
+                        variant === 'method'
+                          ? 'font-mono-tabular font-bold'
+                          : 'font-medium'
+                      } ${opt.textClassName || ''}`}
+                    >
+                      {opt.label}
+                    </span>
+                    {opt.sublabel && (
+                      <span
+                        className="block text-[11px] truncate mt-0.5"
+                        style={{ color: 'var(--zp-text-muted)' }}
+                      >
+                        {opt.sublabel}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {opt.badge && (
+                    <span
+                      className="text-[11px] font-mono-tabular"
+                      style={{ color: 'var(--zp-text-muted)' }}
+                    >
+                      {opt.badge}
+                    </span>
+                  )}
+                  {isSelected && (
+                    <Check
+                      className="w-3.5 h-3.5 shrink-0"
+                      style={{ color: 'var(--zp-accent)' }}
+                    />
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 
   return (
-    <div ref={containerRef} className={`relative inline-flex ${className}`}>
+    <div className={`relative inline-flex ${className}`}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className={`inline-flex items-center justify-between gap-2 font-medium zp-surface-transition whitespace-nowrap shrink-0 focus:outline-none ${paddingClass} ${
+        className={`w-full inline-flex items-center justify-between gap-2 font-medium zp-surface-transition whitespace-nowrap shrink-0 focus:outline-none ${paddingClass} ${
           variant === 'ghost'
             ? 'rounded-lg hover:bg-black/5 dark:hover:bg-white/5'
             : variant === 'method'
@@ -128,99 +297,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         </motion.span>
       </button>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: 4, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 3, scale: 0.97 }}
-            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-            style={{
-              minWidth: `${minWidth}px`,
-              backgroundColor: 'var(--zp-bg-surface)',
-              borderColor: 'var(--zp-border)',
-              color: 'var(--zp-text-primary)',
-            }}
-            className={`absolute z-50 top-full mt-1.5 rounded-xl border p-1.5 zp-popover-shadow max-h-80 overflow-y-auto ${
-              align === 'right' ? 'right-0' : 'left-0'
-            }`}
-          >
-            {options.map((opt) => {
-              const isSelected = opt.value === value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => {
-                    onChange(opt.value);
-                    setOpen(false);
-                  }}
-                  className="w-full text-left flex items-center justify-between gap-3 px-2.5 py-2 rounded-lg text-xs transition-colors"
-                  style={{
-                    backgroundColor: isSelected ? 'var(--zp-accent-soft)' : 'transparent',
-                    color: isSelected ? 'var(--zp-accent)' : 'var(--zp-text-primary)',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected) {
-                      e.currentTarget.style.backgroundColor = 'var(--zp-bg-elevated)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }
-                  }}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {opt.colorDot && (
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0 border border-black/10 dark:border-white/10"
-                        style={{ backgroundColor: opt.colorDot }}
-                      />
-                    )}
-                    <div className="truncate">
-                      <span
-                        className={`block truncate ${
-                          variant === 'method'
-                            ? 'font-mono-tabular font-bold'
-                            : 'font-medium'
-                        } ${opt.textClassName || ''}`}
-                      >
-                        {opt.label}
-                      </span>
-                      {opt.sublabel && (
-                        <span
-                          className="block text-[11px] truncate mt-0.5"
-                          style={{ color: 'var(--zp-text-muted)' }}
-                        >
-                          {opt.sublabel}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {opt.badge && (
-                      <span
-                        className="text-[11px] font-mono-tabular"
-                        style={{ color: 'var(--zp-text-muted)' }}
-                      >
-                        {opt.badge}
-                      </span>
-                    )}
-                    {isSelected && (
-                      <Check
-                        className="w-3.5 h-3.5 shrink-0"
-                        style={{ color: 'var(--zp-accent)' }}
-                      />
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {typeof document !== 'undefined' ? createPortal(menuNode, document.body) : null}
     </div>
   );
 };

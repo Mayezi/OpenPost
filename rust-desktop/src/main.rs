@@ -43,12 +43,43 @@ enum DesktopCommand {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ProxyConfig {
+    mode: String,
+    protocol: String,
+    host: String,
+    port: String,
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    bypass: String,
+}
+
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        Self {
+            mode: "none".to_string(),
+            protocol: "http".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: "7890".to_string(),
+            username: String::new(),
+            password: String::new(),
+            bypass: "localhost,127.0.0.1,::1".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct StorageConfig {
     storage_dir: String,
     auto_sync_to_disk: bool,
     max_history_items: usize,
     request_timeout_ms: u64,
     verify_ssl: bool,
+    #[serde(default)]
+    proxy: ProxyConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +98,7 @@ struct UpdateStorageConfigPayload {
     max_history_items: Option<usize>,
     request_timeout_ms: Option<u64>,
     verify_ssl: Option<bool>,
+    proxy: Option<ProxyConfig>,
     migrate_existing: Option<bool>,
     clean_old_dir: Option<bool>,
 }
@@ -79,6 +111,13 @@ struct ProxyRequestPayload {
     headers: Option<HashMap<String, String>>,
     body: Option<Value>,
     timeout_ms: Option<u64>,
+    proxy: Option<ProxyConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProxyTestPayload {
+    proxy: Option<ProxyConfig>,
 }
 
 fn app_config_file_path() -> PathBuf {
@@ -164,6 +203,7 @@ fn load_storage_config() -> StorageConfig {
         max_history_items: 100,
         request_timeout_ms: 30000,
         verify_ssl: true,
+        proxy: ProxyConfig::default(),
     };
     save_storage_config(&cfg);
     cfg
@@ -243,8 +283,212 @@ fn send_json_response(stream: &mut TcpStream, status: &str, val: &Value) {
     send_http_response(stream, status, "application/json; charset=utf-8", &bytes);
 }
 
-/// Real Pure-Rust HTTP/HTTPS Execution Engine (`ureq` + `rustls`)
-fn execute_rust_http_proxy(body_str: &str, port: u16, default_timeout_ms: u64) -> Value {
+fn extract_url_host(url: &str) -> String {
+    let without_scheme = url
+        .trim()
+        .strip_prefix("https://")
+        .or_else(|| url.trim().strip_prefix("http://"))
+        .unwrap_or(url.trim());
+    let authority = without_scheme.split(['/', '?', '#']).next().unwrap_or("");
+    let host_only = authority.rsplit('@').next().unwrap_or(authority);
+    if host_only.starts_with('[') {
+        host_only
+            .split(']')
+            .next()
+            .unwrap_or("")
+            .trim_start_matches('[')
+            .to_lowercase()
+    } else {
+        host_only.split(':').next().unwrap_or("").to_lowercase()
+    }
+}
+
+fn should_bypass_host(host: &str, bypass: &str) -> bool {
+    if host.is_empty() || bypass.trim().is_empty() {
+        return false;
+    }
+    let host_lower = host.to_lowercase();
+    for raw_rule in bypass.split(',') {
+        let rule = raw_rule.trim().to_lowercase();
+        if rule.is_empty() {
+            continue;
+        }
+        if rule == "*" || rule == host_lower {
+            return true;
+        }
+        if let Some(suffix) = rule.strip_prefix("*.") {
+            if host_lower.ends_with(&format!(".{}", suffix)) {
+                return true;
+            }
+        }
+        if rule.starts_with('.') && host_lower.ends_with(&rule) {
+            return true;
+        }
+    }
+    false
+}
+
+fn percent_encode_userinfo(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for b in input.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{:02X}", b));
+        }
+    }
+    out
+}
+
+#[cfg(target_os = "windows")]
+fn detect_windows_system_proxy() -> Option<String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let output = std::process::Command::new("reg")
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut enabled = false;
+    let mut server: Option<String> = None;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains("ProxyEnable") && trimmed.ends_with("0x1") {
+            enabled = true;
+        } else if trimmed.contains("ProxyServer") {
+            if let Some(val) = trimmed.split_whitespace().last() {
+                if !val.is_empty() {
+                    server = Some(val.to_string());
+                }
+            }
+        }
+    }
+    if enabled {
+        server.and_then(|s| {
+            let candidate = if s.contains('=') {
+                s.split(';')
+                    .find_map(|part| {
+                        let p = part.trim();
+                        p.strip_prefix("https=")
+                            .or_else(|| p.strip_prefix("http="))
+                            .or_else(|| p.strip_prefix("socks="))
+                            .map(str::to_string)
+                    })
+                    .unwrap_or(s)
+            } else {
+                s
+            };
+            let trimmed = candidate.trim();
+            if trimmed.is_empty() {
+                None
+            } else if trimmed.contains("://") {
+                Some(trimmed.to_string())
+            } else {
+                Some(format!("http://{}", trimmed))
+            }
+        })
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn detect_windows_system_proxy() -> Option<String> {
+    None
+}
+
+fn resolve_proxy_url(cfg: &ProxyConfig, target_url: &str) -> Option<String> {
+    let mode = cfg.mode.trim().to_lowercase();
+    if mode == "none" || mode.is_empty() {
+        return None;
+    }
+
+    let target_host = extract_url_host(target_url);
+    if should_bypass_host(&target_host, &cfg.bypass) {
+        return None;
+    }
+
+    if mode == "system" {
+        let no_proxy = env::var("NO_PROXY")
+            .or_else(|_| env::var("no_proxy"))
+            .unwrap_or_default();
+        if should_bypass_host(&target_host, &no_proxy) {
+            return None;
+        }
+        let is_https = target_url.trim().to_lowercase().starts_with("https://");
+        let candidates: Vec<&str> = if is_https {
+            vec![
+                "HTTPS_PROXY",
+                "https_proxy",
+                "ALL_PROXY",
+                "all_proxy",
+                "HTTP_PROXY",
+                "http_proxy",
+            ]
+        } else {
+            vec!["HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]
+        };
+        for key in candidates {
+            if let Ok(val) = env::var(key) {
+                let t = val.trim();
+                if !t.is_empty() {
+                    return Some(if t.contains("://") {
+                        t.to_string()
+                    } else {
+                        format!("http://{}", t)
+                    });
+                }
+            }
+        }
+        return detect_windows_system_proxy();
+    }
+
+    let host = cfg.host.trim();
+    let port = cfg.port.trim();
+    if host.is_empty() || port.is_empty() {
+        return None;
+    }
+    let proto = match cfg.protocol.trim().to_lowercase().as_str() {
+        "https" => "https",
+        "socks5" => "socks5",
+        _ => "http",
+    };
+    let auth = if !cfg.username.trim().is_empty() {
+        format!(
+            "{}:{}@",
+            percent_encode_userinfo(cfg.username.trim()),
+            percent_encode_userinfo(&cfg.password)
+        )
+    } else {
+        String::new()
+    };
+    Some(format!("{}://{}{}:{}", proto, auth, host, port))
+}
+
+fn parse_host_port_from_proxy_url(proxy_url: &str) -> Option<(String, u16)> {
+    let without_scheme = proxy_url.split("://").nth(1).unwrap_or(proxy_url);
+    let authority = without_scheme.split('/').next().unwrap_or(without_scheme);
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let mut parts = host_port.rsplitn(2, ':');
+    let port_str = parts.next()?;
+    let host = parts.next()?.trim_matches(['[', ']']);
+    let port = port_str.parse::<u16>().ok()?;
+    Some((host.to_string(), port))
+}
+
+/// Real Pure-Rust HTTP/HTTPS Execution Engine (`ureq` + `rustls` + Proxy Support)
+fn execute_rust_http_proxy(
+    body_str: &str,
+    port: u16,
+    default_timeout_ms: u64,
+    default_proxy: &ProxyConfig,
+) -> Value {
     let payload: ProxyRequestPayload = match serde_json::from_str(body_str) {
         Ok(p) => p,
         Err(e) => {
@@ -294,11 +538,35 @@ fn execute_rust_http_proxy(body_str: &str, port: u16, default_timeout_ms: u64) -
         .unwrap_or(default_timeout_ms)
         .clamp(1000, 120_000);
 
-    let agent = ureq::AgentBuilder::new()
+    let effective_proxy_cfg = payload.proxy.as_ref().unwrap_or(default_proxy);
+    let mut agent_builder = ureq::AgentBuilder::new()
         .timeout(Duration::from_millis(timeout_ms))
-        .redirects(5)
-        .build();
+        .redirects(5);
 
+    if let Some(proxy_url) = resolve_proxy_url(effective_proxy_cfg, &resolved_url) {
+        match ureq::Proxy::new(&proxy_url) {
+            Ok(p) => {
+                agent_builder = agent_builder.proxy(p);
+            }
+            Err(e) => {
+                return json!({
+                    "ok": false,
+                    "status": 0,
+                    "statusText": "Proxy Configuration Error",
+                    "url": resolved_url,
+                    "error": format!("无效的代理配置 ({}): {}", proxy_url, e),
+                    "headers": {},
+                    "cookies": [],
+                    "contentType": "text/plain",
+                    "sizeBytes": 0,
+                    "body": "",
+                    "timing": { "totalMs": 0, "ttfbMs": 0, "downloadMs": 0 }
+                });
+            }
+        }
+    }
+
+    let agent = agent_builder.build();
     let mut req = agent.request(&method, &resolved_url);
 
     let mut has_ua = false;
@@ -625,6 +893,9 @@ fn handle_client(
         if let Some(v) = payload.verify_ssl {
             cfg.verify_ssl = v;
         }
+        if let Some(p) = payload.proxy {
+            cfg.proxy = p;
+        }
 
         save_storage_config(&cfg);
         *state.lock().unwrap() = cfg.clone();
@@ -717,10 +988,81 @@ fn handle_client(
         return;
     }
 
-    // 3. Real Rust HTTP/HTTPS Proxy Engine (`POST /api/proxy`)
+    // 3. Real Rust HTTP/HTTPS Proxy Engine (`POST /api/proxy` & `POST /api/proxy/test`)
+    if path_only == "/api/proxy/test" && method == "POST" {
+        let default_proxy = state.lock().unwrap().proxy.clone();
+        let parsed_proxy = serde_json::from_str::<ProxyTestPayload>(&body_str)
+            .ok()
+            .and_then(|p| p.proxy)
+            .unwrap_or(default_proxy);
+
+        if parsed_proxy.mode == "none" {
+            send_json_response(
+                &mut stream,
+                "200 OK",
+                &json!({ "ok": true, "message": "当前为直连模式，无需测试代理连通性。" }),
+            );
+            return;
+        }
+
+        let Some(proxy_url) = resolve_proxy_url(&parsed_proxy, "https://example.com") else {
+            let msg = if parsed_proxy.mode == "system" {
+                "未检测到有效的系统代理配置 (HTTP_PROXY / HTTPS_PROXY 或系统网络代理)。"
+            } else {
+                "请填写有效的代理服务器地址与端口。"
+            };
+            send_json_response(&mut stream, "200 OK", &json!({ "ok": false, "error": msg }));
+            return;
+        };
+
+        let Some((p_host, p_port)) = parse_host_port_from_proxy_url(&proxy_url) else {
+            send_json_response(
+                &mut stream,
+                "200 OK",
+                &json!({ "ok": false, "error": format!("无法解析代理地址: {}", proxy_url) }),
+            );
+            return;
+        };
+
+        let start = Instant::now();
+        let addr_str = format!("{}:{}", p_host, p_port);
+        match addr_str
+            .parse::<SocketAddr>()
+            .map(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(5)))
+            .unwrap_or_else(|_| TcpStream::connect(&addr_str))
+        {
+            Ok(_) => {
+                let latency_ms = start.elapsed().as_millis().max(1) as u64;
+                send_json_response(
+                    &mut stream,
+                    "200 OK",
+                    &json!({
+                        "ok": true,
+                        "latencyMs": latency_ms,
+                        "message": format!("代理服务器 {}:{} 连通正常（握手耗时 {} ms）。", p_host, p_port, latency_ms)
+                    }),
+                );
+            }
+            Err(e) => {
+                send_json_response(
+                    &mut stream,
+                    "200 OK",
+                    &json!({
+                        "ok": false,
+                        "error": format!("无法连接代理服务器 {}:{} ({})", p_host, p_port, e)
+                    }),
+                );
+            }
+        }
+        return;
+    }
+
     if path_only == "/api/proxy" && method == "POST" {
-        let timeout_ms = state.lock().unwrap().request_timeout_ms;
-        let result = execute_rust_http_proxy(&body_str, port, timeout_ms);
+        let (timeout_ms, default_proxy) = {
+            let guard = state.lock().unwrap();
+            (guard.request_timeout_ms, guard.proxy.clone())
+        };
+        let result = execute_rust_http_proxy(&body_str, port, timeout_ms, &default_proxy);
         send_json_response(&mut stream, "200 OK", &result);
         return;
     }

@@ -25,7 +25,6 @@ import {
   Play,
   FolderSync,
   Globe,
-  Palette,
   ListFilter,
   KeyRound,
   FileSpreadsheet,
@@ -38,6 +37,7 @@ import {
   Save,
   Pencil,
   Clock,
+  Network,
 } from 'lucide-react';
 import {
   ApiRequestItem,
@@ -48,6 +48,7 @@ import {
   EnvironmentProfile,
   HistoryEntry,
   HttpMethod,
+  ProxyConfig,
 } from './types/api';
 import {
   AI_THEMES,
@@ -57,13 +58,13 @@ import {
   METHOD_COLORS,
 } from './data/themesAndDefaults';
 import {
-  buildResolvedUrl,
   executeApiRequest,
   generateCodeSnippet,
 } from './utils/requestEngine';
 import { KeyValueTable } from './components/KeyValueTable';
 import { ResponseViewer } from './components/ResponseViewer';
 import { CustomSelect } from './components/CustomSelect';
+import { AuthPanel } from './components/AuthPanel';
 import {
   EnvironmentModal,
   ImportExportModal,
@@ -100,9 +101,34 @@ const HTTP_METHODS: HttpMethod[] = [
   'PUT',
   'PATCH',
   'DELETE',
+  'COPY',
   'HEAD',
   'OPTIONS',
+  'LINK',
+  'UNLINK',
+  'PURGE',
+  'LOCK',
+  'UNLOCK',
+  'PROPFIND',
+  'VIEW',
 ];
+
+function shortMethodLabel(method: HttpMethod): string {
+  switch (method) {
+    case 'DELETE':
+      return 'DEL';
+    case 'OPTIONS':
+      return 'OPT';
+    case 'PROPFIND':
+      return 'PROP';
+    case 'UNLOCK':
+      return 'UNLK';
+    case 'UNLINK':
+      return 'UNLN';
+    default:
+      return method;
+  }
+}
 
 const COMMON_HEADERS = [
   'Accept',
@@ -123,7 +149,12 @@ export default function App() {
   // 1. PERSISTENT LOCAL STATE (100% OFFLINE LOCALSTORAGE & DISK VAULT)
   // ==========================================================================
   const [activeThemeId, setActiveThemeId] = useState<string>(() => {
-    return localStorage.getItem(STORAGE_KEYS.THEME) || 'claude-code';
+    const saved = localStorage.getItem(STORAGE_KEYS.THEME);
+    if (saved === 'classic-dark' || saved === 'classic-light') return saved;
+    if (saved && (saved.includes('dark') || ['claude-code', 'deepseek', 'openai-codex', 'cursor-midnight'].includes(saved))) {
+      return 'classic-dark';
+    }
+    return 'classic-light';
   });
 
   const [fontSizeScale, setFontSizeScale] = useState<FontSizeScale>(() => {
@@ -202,8 +233,6 @@ export default function App() {
   const [envPopoverOpen, setEnvPopoverOpen] = useState(false);
   const [quickNewEnvName, setQuickNewEnvName] = useState('');
   const envPopoverRef = useRef<HTMLDivElement>(null);
-  const [themePopoverOpen, setThemePopoverOpen] = useState(false);
-  const themePopoverRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Responses Map per Request ID
@@ -216,26 +245,42 @@ export default function App() {
   const [isEnvModalOpen, setIsEnvModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [responseExpanded, setResponseExpanded] = useState(false);
+  const [proxySummary, setProxySummary] = useState<ProxyConfig | null>(() => {
+    try {
+      const saved = localStorage.getItem('openpost_proxy_config');
+      return saved ? (JSON.parse(saved) as ProxyConfig) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (!isSettingsOpen) {
+      try {
+        const saved = localStorage.getItem('openpost_proxy_config');
+        setProxySummary(saved ? (JSON.parse(saved) as ProxyConfig) : null);
+      } catch {
+        setProxySummary(null);
+      }
+    }
+  }, [isSettingsOpen]);
 
   const openSettingsAt = (tab: SettingsTabId) => {
     setSettingsInitialTab(tab);
     setIsSettingsOpen(true);
   };
 
-  // Close env & theme popovers on outside click
+  // Close env popover on outside click
   useEffect(() => {
-    if (!themePopoverOpen && !envPopoverOpen) return;
+    if (!envPopoverOpen) return;
     const handleOutside = (e: MouseEvent) => {
-      if (themePopoverRef.current && !themePopoverRef.current.contains(e.target as Node)) {
-        setThemePopoverOpen(false);
-      }
       if (envPopoverRef.current && !envPopoverRef.current.contains(e.target as Node)) {
         setEnvPopoverOpen(false);
       }
     };
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
-  }, [themePopoverOpen, envPopoverOpen]);
+  }, [envPopoverOpen]);
 
   const handleQuickCreateEnvInline = () => {
     const name = quickNewEnvName.trim() || `新环境 ${environments.length + 1}`;
@@ -432,22 +477,20 @@ export default function App() {
 
   const handleCloseTab = (reqId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
+    if (openTabIds.length <= 1) return;
     const closedIdx = openTabIds.indexOf(reqId);
     const nextTabs = openTabIds.filter((id) => id !== reqId);
     setOpenTabIds(nextTabs);
     if (activeRequestId === reqId) {
-      if (nextTabs.length > 0) {
-        const fallbackIdx = Math.min(Math.max(0, closedIdx - 1), nextTabs.length - 1);
-        setActiveRequestId(nextTabs[fallbackIdx]);
-      } else {
-        setActiveRequestId('');
-      }
+      const fallbackIdx = Math.min(Math.max(0, closedIdx - 1), nextTabs.length - 1);
+      setActiveRequestId(nextTabs[fallbackIdx]);
     }
   };
 
-  const handleCloseAllTabs = () => {
-    setOpenTabIds([]);
-    setActiveRequestId('');
+  const handleCloseOtherTabs = () => {
+    if (!activeRequest) return;
+    setOpenTabIds([activeRequest.id]);
+    setActiveRequestId(activeRequest.id);
   };
 
   const handleCreateNewRequest = (targetFolderId?: string) => {
@@ -708,21 +751,9 @@ export default function App() {
     [activeEnv]
   );
 
-  // Quick toggle between Light and Dark theme families
+  // Quick toggle between Classic Light and Classic Dark themes
   const handleToggleLightDark = () => {
-    if (currentTheme.mode === 'dark') {
-      const matchingLight =
-        AI_THEMES.find(
-          (t) => t.mode === 'light' && t.id.startsWith(currentTheme.id.split('-')[0])
-        ) || AI_THEMES.find((t) => t.mode === 'light');
-      if (matchingLight) setActiveThemeId(matchingLight.id);
-    } else {
-      const matchingDark =
-        AI_THEMES.find(
-          (t) => t.mode === 'dark' && t.id.startsWith(currentTheme.id.split('-')[0])
-        ) || AI_THEMES.find((t) => t.mode === 'dark');
-      if (matchingDark) setActiveThemeId(matchingDark.id);
-    }
+    setActiveThemeId(currentTheme.mode === 'dark' ? 'classic-light' : 'classic-dark');
   };
 
   // ==========================================================================
@@ -734,7 +765,7 @@ export default function App() {
       if (!targetReq || loadingReqId) return;
       setLoadingReqId(targetReq.id);
 
-      const res = await executeApiRequest(targetReq, activeEnv, engineMode);
+      const res = await executeApiRequest(targetReq, activeEnv, engineMode, folders);
       setResponsesById((prev) => ({ ...prev, [targetReq.id]: res }));
 
       if (res.extractedVars.length > 0) {
@@ -830,11 +861,6 @@ export default function App() {
     }
   };
 
-  const resolvedPreviewUrl = useMemo(() => {
-    if (!activeRequest) return '';
-    return buildResolvedUrl(activeRequest, activeEnv);
-  }, [activeRequest, activeEnv]);
-
   const activeResponse = activeRequest ? responsesById[activeRequest.id] || null : null;
 
   const filteredRequests = useMemo(() => {
@@ -861,7 +887,7 @@ export default function App() {
         id: 'auth' as const,
         label: 'Auth',
         icon: <KeyRound className="w-3.5 h-3.5" />,
-        badge: activeRequest.auth.type === 'none' ? '' : activeRequest.auth.type.toUpperCase(),
+        hasDot: activeRequest.auth.type !== 'none',
       },
       {
         id: 'headers' as const,
@@ -873,13 +899,13 @@ export default function App() {
         id: 'body' as const,
         label: 'Body',
         icon: <Braces className="w-3.5 h-3.5" />,
-        badge: activeRequest.body.type === 'none' ? '' : activeRequest.body.type,
+        hasDot: activeRequest.body.type !== 'none',
       },
       {
         id: 'tests' as const,
         label: '断言与提取',
         icon: <CheckCircle2 className="w-3.5 h-3.5" />,
-        count: activeRequest.assertions.filter((a) => a.enabled).length,
+        hasDot: activeRequest.assertions.some((a) => a.enabled),
       },
       {
         id: 'code' as const,
@@ -913,25 +939,24 @@ export default function App() {
             sendDesktopWindowCmd('maximize');
           }
         }}
-        className="h-10 flex items-center justify-between pl-3 pr-0 border-b shrink-0 zp-surface-transition"
+        className="h-9 flex items-center justify-between pl-3 pr-0 border-b shrink-0 zp-surface-transition"
         style={{
           backgroundColor: 'var(--zp-bg-surface)',
-          borderColor: 'var(--zp-border)',
+          borderColor: 'var(--zp-border-subtle)',
         }}
       >
         {/* LEFT ZONE: Brand + Left-Aligned Action Buttons */}
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
             onClick={() => setSidebarCollapsed((prev) => !prev)}
-            className="flex items-center gap-2 pr-2.5 mr-1 border-r hover:opacity-85 transition-opacity"
-            style={{ borderColor: 'var(--zp-border-subtle)' }}
+            className="flex items-center gap-2 pr-1.5 hover:opacity-85 transition-opacity"
             title="点击展开/收起侧边栏"
           >
             <img
               src="/icons/openpost_icon_pack/png/transparent/openpost-64-transparent.png"
               alt="openPost"
-              className="w-6 h-6 object-contain shrink-0"
+              className="w-5 h-5 object-contain shrink-0"
             />
             <span className="text-sm font-bold tracking-tight font-display whitespace-nowrap shrink-0">
               openPost
@@ -942,7 +967,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsImportModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
             style={{ color: 'var(--zp-text-secondary)' }}
           >
             <FolderSync className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
@@ -961,274 +986,52 @@ export default function App() {
           onDoubleClick={() => sendDesktopWindowCmd('maximize')}
         />
 
-        {/* RIGHT ZONE: Compact Env + Icon-Only Theme & Settings + Frameless Native Window Controls */}
+        {/* RIGHT ZONE: Icon-Only Theme, Proxy & Settings + Frameless Native Window Controls */}
         <div className="flex items-center h-full shrink-0">
           <div className="flex items-center gap-1 pr-2">
-            {/* UNIFIED ENVIRONMENT SWITCHER + INLINE ADD + VARIABLE CONFIG POPOVER */}
-            <div ref={envPopoverRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setEnvPopoverOpen((prev) => !prev)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
-                style={{ color: 'var(--zp-text-primary)' }}
-                title="切换运行环境、直接新建环境或配置环境变量"
-              >
-                <Globe className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--zp-accent)' }} />
-                <span className="max-w-[140px] truncate">{activeEnv?.name || '选择环境'}</span>
+
+            {/* ONE-CLICK LIGHT / DARK THEME TOGGLE */}
+            <button
+              type="button"
+              onClick={handleToggleLightDark}
+              className="w-7 h-7 rounded-lg inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
+              style={{ color: 'var(--zp-text-secondary)' }}
+              title={`切换浅色 / 深色主题（当前：${currentTheme.name}）`}
+            >
+              {currentTheme.mode === 'dark' ? (
+                <Sun className="w-3.5 h-3.5 text-amber-400" />
+              ) : (
+                <Moon className="w-3.5 h-3.5" />
+              )}
+            </button>
+
+            {/* QUICK PROXY SETTINGS BUTTON */}
+            <button
+              type="button"
+              onClick={() => openSettingsAt('network')}
+              className="relative w-7 h-7 rounded-lg inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
+              style={{
+                color:
+                  proxySummary && proxySummary.mode !== 'none'
+                    ? 'var(--zp-accent)'
+                    : 'var(--zp-text-secondary)',
+              }}
+              title={
+                proxySummary?.mode === 'custom'
+                  ? `网络代理已启用: ${proxySummary.protocol.toUpperCase()}://${proxySummary.host}:${proxySummary.port} (点击修改)`
+                  : proxySummary?.mode === 'system'
+                  ? '网络代理已启用: 跟随系统代理 (点击修改)'
+                  : '配置网络代理 (HTTP / HTTPS / SOCKS5)'
+              }
+            >
+              <Network className="w-3.5 h-3.5" />
+              {proxySummary && proxySummary.mode !== 'none' && (
                 <span
-                  className="px-1.5 py-0.2 rounded text-[10px] font-mono-tabular"
-                  style={{
-                    backgroundColor: 'var(--zp-accent-soft)',
-                    color: 'var(--zp-accent)',
-                  }}
-                >
-                  {activeEnv?.variables.filter((v) => v.enabled).length ?? 0}
-                </span>
-                <motion.span
-                  animate={{ rotate: envPopoverOpen ? 180 : 0 }}
-                  transition={{ duration: 0.16 }}
-                  className="opacity-60"
-                >
-                  <ChevronDown className="w-3.5 h-3.5" />
-                </motion.span>
-              </button>
-
-              <AnimatePresence>
-                {envPopoverOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 4, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 3, scale: 0.97 }}
-                    transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                    className="absolute right-0 top-full mt-1.5 w-72 rounded-xl border p-2 z-50 zp-popover-shadow"
-                    style={{
-                      backgroundColor: 'var(--zp-bg-surface)',
-                      borderColor: 'var(--zp-border)',
-                      color: 'var(--zp-text-primary)',
-                    }}
-                  >
-                    {/* Header: Title + Edit Variables Action */}
-                    <div
-                      className="flex items-center justify-between px-2 py-1.5 mb-1 border-b text-xs"
-                      style={{ borderColor: 'var(--zp-border-subtle)' }}
-                    >
-                      <span className="font-semibold" style={{ color: 'var(--zp-text-secondary)' }}>
-                        运行环境切换与新建
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEnvPopoverOpen(false);
-                          setIsEnvModalOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium transition-opacity hover:opacity-85"
-                        style={{
-                          backgroundColor: 'var(--zp-accent-soft)',
-                          color: 'var(--zp-accent)',
-                        }}
-                      >
-                        <SlidersHorizontal className="w-3 h-3" />
-                        <span>编辑变量表</span>
-                      </button>
-                    </div>
-
-                    {/* Environment List */}
-                    <div className="max-h-56 overflow-y-auto space-y-0.5 py-0.5">
-                      {environments.map((env) => {
-                        const isSelected = env.id === activeEnvId;
-                        const enabledCount = env.variables.filter((v) => v.enabled).length;
-                        return (
-                          <div
-                            key={env.id}
-                            onClick={() => {
-                              setActiveEnvId(env.id);
-                              setEnvPopoverOpen(false);
-                            }}
-                            className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5 group"
-                            style={{
-                              backgroundColor: isSelected ? 'var(--zp-accent-soft)' : 'transparent',
-                              color: isSelected ? 'var(--zp-accent)' : 'var(--zp-text-primary)',
-                            }}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                className="w-2 h-2 rounded-full shrink-0"
-                                style={{
-                                  backgroundColor: isSelected
-                                    ? 'var(--zp-accent)'
-                                    : 'var(--zp-border)',
-                                }}
-                              />
-                              <div className="min-w-0">
-                                <div className="font-medium truncate">{env.name}</div>
-                                <div
-                                  className="text-[10px] font-mono-tabular truncate"
-                                  style={{ color: 'var(--zp-text-muted)' }}
-                                >
-                                  {enabledCount} 个生效变量
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveEnvId(env.id);
-                                  setEnvPopoverOpen(false);
-                                  setIsEnvModalOpen(true);
-                                }}
-                                className="px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity border"
-                                style={{
-                                  borderColor: 'var(--zp-border)',
-                                  backgroundColor: 'var(--zp-bg-canvas)',
-                                  color: 'var(--zp-text-secondary)',
-                                }}
-                                title="配置此环境的变量"
-                              >
-                                变量
-                              </button>
-                              {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Integrated Inline Add Environment Footer */}
-                    <div
-                      className="mt-1.5 pt-2 border-t flex items-center gap-1.5"
-                      style={{ borderColor: 'var(--zp-border-subtle)' }}
-                    >
-                      <input
-                        type="text"
-                        value={quickNewEnvName}
-                        onChange={(e) => setQuickNewEnvName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleQuickCreateEnvInline();
-                          }
-                        }}
-                        placeholder="输入新环境名 (如 Staging)..."
-                        className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none"
-                        style={{
-                          backgroundColor: 'var(--zp-bg-input)',
-                          borderColor: 'var(--zp-border)',
-                          color: 'var(--zp-text-primary)',
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleQuickCreateEnvInline}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-opacity hover:opacity-90"
-                        style={{
-                          backgroundColor: 'var(--zp-accent)',
-                          color: 'var(--zp-accent-fg)',
-                        }}
-                        title="立即创建并切换到新环境"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>新建</span>
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* ICON-ONLY THEME SWITCHER WITH POPOVER */}
-            <div ref={themePopoverRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setThemePopoverOpen((prev) => !prev)}
-                className="w-7 h-7 rounded-lg inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
-                style={{ color: 'var(--zp-text-secondary)' }}
-                title={`切换主题 (当前: ${currentTheme.name})`}
-              >
-                <Palette className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
-              </button>
-
-              <AnimatePresence>
-                {themePopoverOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 4, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 3, scale: 0.97 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-1.5 w-60 rounded-xl border p-1.5 z-50 zp-popover-shadow"
-                    style={{
-                      backgroundColor: 'var(--zp-bg-surface)',
-                      borderColor: 'var(--zp-border)',
-                      color: 'var(--zp-text-primary)',
-                    }}
-                  >
-                    <div
-                      className="flex items-center justify-between px-2.5 py-1.5 mb-1 border-b text-xs"
-                      style={{ borderColor: 'var(--zp-border-subtle)' }}
-                    >
-                      <span className="font-semibold">AI 主题快切</span>
-                      <button
-                        type="button"
-                        onClick={handleToggleLightDark}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px]"
-                        style={{
-                          borderColor: 'var(--zp-border)',
-                          color: 'var(--zp-text-secondary)',
-                        }}
-                      >
-                        {currentTheme.mode === 'dark' ? (
-                          <>
-                            <Sun className="w-3 h-3 text-amber-400" />
-                            <span>转浅色</span>
-                          </>
-                        ) : (
-                          <>
-                            <Moon className="w-3 h-3 text-indigo-500" />
-                            <span>转深色</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <div className="max-h-64 overflow-y-auto space-y-0.5">
-                      {AI_THEMES.map((t) => {
-                        const selected = t.id === activeThemeId;
-                        return (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => {
-                              setActiveThemeId(t.id);
-                              setThemePopoverOpen(false);
-                            }}
-                            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-                            style={{
-                              backgroundColor: selected ? 'var(--zp-accent-soft)' : 'transparent',
-                              color: selected ? 'var(--zp-accent)' : 'var(--zp-text-primary)',
-                            }}
-                          >
-                            <div className="flex items-center gap-2 truncate">
-                              <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: t.colors.accent }}
-                              />
-                              <span className="truncate font-medium">{t.name}</span>
-                            </div>
-                            <span
-                              className="text-[10px] font-mono-tabular shrink-0"
-                              style={{ color: 'var(--zp-text-muted)' }}
-                            >
-                              {t.mode === 'light' ? 'Light' : 'Dark'}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                  className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: '#10B981' }}
+                />
+              )}
+            </button>
 
             {/* ICON-ONLY SETTINGS BUTTON */}
             <button
@@ -1236,17 +1039,14 @@ export default function App() {
               onClick={() => openSettingsAt('themes')}
               className="w-7 h-7 rounded-lg inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
               style={{ color: 'var(--zp-text-secondary)' }}
-              title="偏好设置 (外观与字号 / 本地数据目录 / 网络与执行引擎)"
+              title="偏好设置 (外观与字号 / 本地数据目录 / 网络代理)"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
           </div>
 
           {/* FRAMELESS WINDOW CONTROLS (MINIMIZE / MAXIMIZE-RESTORE / CLOSE) */}
-          <div
-            className="flex items-center h-full border-l"
-            style={{ borderColor: 'var(--zp-border-subtle)' }}
-          >
+          <div className="flex items-center h-full">
             <button
               type="button"
               onClick={() => sendDesktopWindowCmd('minimize')}
@@ -1297,12 +1097,12 @@ export default function App() {
               className="border-r flex flex-col shrink-0 overflow-hidden zp-surface-transition"
               style={{
                 backgroundColor: 'var(--zp-bg-surface)',
-                borderColor: 'var(--zp-border)',
+                borderColor: 'var(--zp-border-subtle)',
               }}
             >
-              {/* Sidebar Mode Switcher with Unified Rounded-lg Sliding Pill */}
+              {/* Sidebar Mode Switcher with Unified Rounded-lg Sliding Pill (h-10 aligned with right tab row) */}
               <div
-                className="grid grid-cols-2 gap-1 p-2 border-b text-xs"
+                className="grid grid-cols-2 gap-1 h-10 px-2 items-center border-b text-xs shrink-0"
                 style={{ borderColor: 'var(--zp-border-subtle)' }}
               >
                 {(
@@ -1325,7 +1125,7 @@ export default function App() {
                       key={tab.id}
                       type="button"
                       onClick={() => setSidebarMode(tab.id)}
-                      className="relative inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0"
+                      className="relative inline-flex items-center justify-center gap-1.5 h-7 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0"
                       style={{
                         color: active ? 'var(--zp-text-primary)' : 'var(--zp-text-secondary)',
                       }}
@@ -1392,16 +1192,11 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleCreateFolder}
-                    className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium zp-surface-transition hover:opacity-85 whitespace-nowrap shrink-0"
-                    style={{
-                      borderColor: 'var(--zp-border)',
-                      backgroundColor: 'var(--zp-bg-canvas)',
-                      color: 'var(--zp-text-secondary)',
-                    }}
-                    title="新建接口集合目录"
+                    className="inline-flex items-center justify-center w-8 h-8 rounded-lg zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
+                    style={{ color: 'var(--zp-text-secondary)' }}
+                    title="新建目录"
                   >
-                    <FolderPlus className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
-                    <span>新建目录</span>
+                    <FolderPlus className="w-4 h-4" style={{ color: 'var(--zp-accent)' }} />
                   </button>
                 )}
               </div>
@@ -1655,7 +1450,7 @@ export default function App() {
                                 ) : (
                                   folderReqs.map((req) => {
                                     const isSelected = req.id === activeRequest?.id;
-                                    const mStyle = METHOD_COLORS[req.method];
+                                    const mStyle = METHOD_COLORS[req.method] || METHOD_COLORS.GET;
                                     const isEditingReq = editingSidebarReqId === req.id;
                                     const isReqDropTarget =
                                       dropIndicator?.targetType === 'request' &&
@@ -1733,8 +1528,9 @@ export default function App() {
                                           <div className="flex items-center gap-2 min-w-0 flex-1">
                                             <span
                                               className={`font-mono-tabular font-bold text-[11px] w-11 shrink-0 ${mStyle.text}`}
+                                              title={req.method}
                                             >
-                                              {req.method}
+                                              {shortMethodLabel(req.method)}
                                             </span>
                                             {isEditingReq ? (
                                               <input
@@ -2050,112 +1846,291 @@ export default function App() {
         {/* RIGHT MAIN WORKSPACE */}
         <main className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* ==================================================================
-              UNIFIED ROUNDED-LG OPEN TABS BAR (MATCHES SUB-TABS DESIGN LANGUAGE)
+              STANDALONE TOP TAB ROW (h-10 ALIGNED WITH SIDEBAR; ACTIVE TAB SEAMLESSLY MERGES INTO CANVAS)
              ================================================================== */}
           <div
-            className="flex items-center gap-1.5 px-3 py-1.5 border-b overflow-x-auto shrink-0 zp-surface-transition"
+            className="relative flex items-center justify-between h-10 shrink-0 select-none zp-surface-transition"
             style={{
               backgroundColor: 'var(--zp-bg-surface)',
-              borderColor: 'var(--zp-border)',
             }}
           >
-            {openTabIds.map((tabId) => {
-              const req = requests.find((r) => r.id === tabId);
-              if (!req) return null;
-              const isActive = req.id === activeRequest?.id;
-              const mStyle = METHOD_COLORS[req.method];
-              return (
-                <div
-                  key={req.id}
-                  onClick={() => setActiveRequestId(req.id)}
-                  onMouseDown={(e) => {
-                    if (e.button === 1) {
-                      e.preventDefault();
-                      handleCloseTab(req.id);
-                    }
-                  }}
-                  className="relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors max-w-[240px] shrink-0 group"
-                  style={{
-                    color: isActive ? 'var(--zp-text-primary)' : 'var(--zp-text-secondary)',
-                  }}
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="open-request-tab-card"
-                      transition={{ type: 'spring', stiffness: 450, damping: 34 }}
-                      className="absolute inset-0 rounded-lg border"
-                      style={{
-                        backgroundColor: 'var(--zp-bg-elevated)',
-                        borderColor: 'var(--zp-border)',
-                      }}
-                    />
-                  )}
-                  <span
-                    className={`relative z-10 font-mono-tabular font-bold text-[11px] shrink-0 ${mStyle.text}`}
+            {/* Bottom 1px hairline at z-0; active tab (z-10, bg-canvas) covers it cleanly */}
+            <div
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-px z-0"
+              style={{ backgroundColor: 'var(--zp-border-subtle)' }}
+            />
+
+            <div className="relative z-10 flex items-stretch h-full overflow-x-auto min-w-0 flex-1">
+              {openTabIds.map((tabId) => {
+                const req = requests.find((r) => r.id === tabId);
+                if (!req) return null;
+                const isActive = req.id === activeRequest?.id;
+                const mStyle = METHOD_COLORS[req.method] || METHOD_COLORS.GET;
+                const shortMethod = shortMethodLabel(req.method);
+                const canClose = openTabIds.length > 1;
+                return (
+                  <div
+                    key={req.id}
+                    onClick={() => setActiveRequestId(req.id)}
+                    onMouseDown={(e) => {
+                      if (e.button === 1 && canClose) {
+                        e.preventDefault();
+                        handleCloseTab(req.id);
+                      }
+                    }}
+                    className={`relative flex items-center gap-2 px-3.5 h-full text-xs cursor-pointer transition-colors max-w-[210px] min-w-[116px] shrink-0 group border-r ${
+                      isActive
+                        ? 'z-10'
+                        : 'hover:bg-black/[0.03] dark:hover:bg-white/[0.03]'
+                    }`}
+                    style={{
+                      backgroundColor: isActive ? 'var(--zp-bg-canvas)' : 'transparent',
+                      borderRightColor: 'var(--zp-border-subtle)',
+                      color: isActive ? 'var(--zp-text-primary)' : 'var(--zp-text-secondary)',
+                    }}
+                    title={`${req.method} · ${req.name}`}
                   >
-                    {req.method}
-                  </span>
-                  <span className="relative z-10 truncate font-medium">{req.name}</span>
-                  <button
-                    type="button"
-                    onClick={(e) => handleCloseTab(req.id, e)}
-                    className="relative z-10 p-0.5 rounded-md hover:bg-black/10 dark:hover:bg-white/10 shrink-0"
-                    style={{ color: 'var(--zp-text-muted)' }}
-                    title="关闭此标签页"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              );
-            })}
-            <button
-              type="button"
-              onClick={() => handleCreateNewRequest()}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium hover:opacity-85 shrink-0"
-              style={{
-                borderColor: 'var(--zp-border-subtle)',
-                backgroundColor: 'var(--zp-bg-canvas)',
-                color: 'var(--zp-text-secondary)',
-              }}
-              title="新建请求标签页"
-            >
-              <Plus className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
-              <span>新建</span>
-            </button>
-            {openTabIds.length > 0 && (
+                    {isActive && (
+                      <span
+                        className="absolute top-0 left-0 right-0 h-[2px]"
+                        style={{ backgroundColor: 'var(--zp-accent)' }}
+                      />
+                    )}
+                    <span
+                      className={`text-[10px] font-bold tracking-tight shrink-0 ${mStyle.text}`}
+                    >
+                      {shortMethod}
+                    </span>
+                    <span
+                      className={`truncate flex-1 ${isActive ? 'font-medium' : 'font-normal'}`}
+                    >
+                      {req.name}
+                    </span>
+                    {canClose && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleCloseTab(req.id, e)}
+                        className={`p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 shrink-0 transition-opacity ${
+                          isActive
+                            ? 'opacity-65 hover:opacity-100'
+                            : 'opacity-0 group-hover:opacity-80 hover:!opacity-100'
+                        }`}
+                        style={{ color: 'var(--zp-text-muted)' }}
+                        title="关闭此标签页"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
               <button
                 type="button"
-                onClick={handleCloseAllTabs}
-                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs hover:bg-black/5 dark:hover:bg-white/5 shrink-0 ml-auto"
-                style={{ color: 'var(--zp-text-muted)' }}
-                title="关闭右侧所有已打开的标签页"
+                onClick={() => handleCreateNewRequest()}
+                className="w-9 h-full inline-flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0"
+                style={{ color: 'var(--zp-text-secondary)' }}
+                title="新建请求标签页"
               >
-                <X className="w-3 h-3" />
-                <span>关闭全部</span>
+                <Plus className="w-4 h-4" />
               </button>
-            )}
+            </div>
+
+            {/* Right Zone of Tab Row: Close Others + Environment Switcher */}
+            <div className="relative z-10 flex items-center h-full shrink-0 pr-2 gap-1">
+              {openTabIds.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handleCloseOtherTabs}
+                  className="inline-flex items-center px-2 py-1 rounded text-[11px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors whitespace-nowrap shrink-0"
+                  style={{ color: 'var(--zp-text-muted)' }}
+                  title="关闭除当前标签外的其他标签页"
+                >
+                  关闭其他
+                </button>
+              )}
+
+              <div ref={envPopoverRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setEnvPopoverOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0"
+                  style={{ color: 'var(--zp-text-primary)' }}
+                  title="切换运行环境、直接新建环境或配置环境变量"
+                >
+                  <Globe className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--zp-accent)' }} />
+                  <span className="max-w-[130px] truncate">{activeEnv?.name || '选择环境'}</span>
+                  <motion.span
+                    animate={{ rotate: envPopoverOpen ? 180 : 0 }}
+                    transition={{ duration: 0.16 }}
+                    className="opacity-60"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </motion.span>
+                </button>
+
+                <AnimatePresence>
+                  {envPopoverOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 3, scale: 0.97 }}
+                      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                      className="absolute right-0 top-full mt-1.5 w-72 rounded-xl border p-2 z-50 zp-popover-shadow"
+                      style={{
+                        backgroundColor: 'var(--zp-bg-surface)',
+                        borderColor: 'var(--zp-border)',
+                        color: 'var(--zp-text-primary)',
+                      }}
+                    >
+                      <div
+                        className="flex items-center justify-between px-2 py-1.5 mb-1 border-b text-xs"
+                        style={{ borderColor: 'var(--zp-border-subtle)' }}
+                      >
+                        <span className="font-semibold" style={{ color: 'var(--zp-text-secondary)' }}>
+                          运行环境切换与新建
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEnvPopoverOpen(false);
+                            setIsEnvModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium transition-opacity hover:opacity-85"
+                          style={{
+                            backgroundColor: 'var(--zp-accent-soft)',
+                            color: 'var(--zp-accent)',
+                          }}
+                        >
+                          <SlidersHorizontal className="w-3 h-3" />
+                          <span>编辑变量表</span>
+                        </button>
+                      </div>
+
+                      <div className="max-h-56 overflow-y-auto space-y-0.5 py-0.5">
+                        {environments.map((env) => {
+                          const isSelected = env.id === activeEnvId;
+                          const enabledCount = env.variables.filter((v) => v.enabled).length;
+                          return (
+                            <div
+                              key={env.id}
+                              onClick={() => {
+                                setActiveEnvId(env.id);
+                                setEnvPopoverOpen(false);
+                              }}
+                              className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5 group"
+                              style={{
+                                backgroundColor: isSelected ? 'var(--zp-accent-soft)' : 'transparent',
+                                color: isSelected ? 'var(--zp-accent)' : 'var(--zp-text-primary)',
+                              }}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className="w-2 h-2 rounded-full shrink-0"
+                                  style={{
+                                    backgroundColor: isSelected
+                                      ? 'var(--zp-accent)'
+                                      : 'var(--zp-border)',
+                                  }}
+                                />
+                                <div className="min-w-0">
+                                  <div className="font-medium truncate">{env.name}</div>
+                                  <div
+                                    className="text-[10px] truncate"
+                                    style={{ color: 'var(--zp-text-muted)' }}
+                                  >
+                                    {enabledCount} 个生效变量
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveEnvId(env.id);
+                                    setEnvPopoverOpen(false);
+                                    setIsEnvModalOpen(true);
+                                  }}
+                                  className="px-1.5 py-0.5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                                  style={{
+                                    backgroundColor: 'var(--zp-bg-canvas)',
+                                    color: 'var(--zp-text-secondary)',
+                                  }}
+                                  title="配置此环境的变量"
+                                >
+                                  变量
+                                </button>
+                                {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div
+                        className="mt-1.5 pt-2 border-t flex items-center gap-1.5"
+                        style={{ borderColor: 'var(--zp-border-subtle)' }}
+                      >
+                        <input
+                          type="text"
+                          value={quickNewEnvName}
+                          onChange={(e) => setQuickNewEnvName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleQuickCreateEnvInline();
+                            }
+                          }}
+                          placeholder="输入新环境名 (如 Staging)..."
+                          className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none"
+                          style={{
+                            backgroundColor: 'var(--zp-bg-input)',
+                            borderColor: 'var(--zp-border)',
+                            color: 'var(--zp-text-primary)',
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleQuickCreateEnvInline}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-opacity hover:opacity-90"
+                          style={{
+                            backgroundColor: 'var(--zp-accent)',
+                            color: 'var(--zp-accent-fg)',
+                          }}
+                          title="立即创建并切换到新环境"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>新建</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
           </div>
 
           {activeRequest ? (
             <div className="flex-1 flex flex-col min-h-0">
               {/* ================================================================
-                  STREAMLINED REQUEST CONTROL BLOCK (BREADCRUMB + OMNIBAR)
+                  STREAMLINED REQUEST CONTROL BLOCK (CLEAN, BORDER-MINIMAL POSTMAN FLOW)
                  ================================================================ */}
               <div
-                className="px-4 py-2.5 border-b space-y-2 shrink-0 zp-surface-transition"
+                className="px-4 pt-2.5 pb-2 space-y-2 shrink-0 zp-surface-transition"
                 style={{
-                  borderColor: 'var(--zp-border)',
                   backgroundColor: 'var(--zp-bg-canvas)',
                 }}
               >
-                {/* Compact Top Row: Folder Dropdown + Request Title + Resolved URL + Copy cURL */}
+                {/* Compact Top Row: Borderless Folder Breadcrumb + Request Title + Ghost Actions */}
                 <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center gap-2 flex-1 min-w-[260px]">
+                  <div className="flex items-center gap-1 flex-1 min-w-[260px]">
                     <CustomSelect
                       value={activeRequest.folderId}
                       onChange={(folderId) => updateActiveRequest({ folderId })}
-                      icon={<Folder className="w-3.5 h-3.5" />}
-                      minWidth={210}
+                      variant="ghost"
+                      minWidth={190}
                       options={folders.map((f) => ({
                         value: f.id,
                         label: f.name,
@@ -2166,37 +2141,18 @@ export default function App() {
                       type="text"
                       value={activeRequest.name}
                       onChange={(e) => updateActiveRequest({ name: e.target.value })}
-                      className="font-semibold font-display text-sm bg-transparent border border-transparent hover:border-[var(--zp-border)] focus:border-[var(--zp-accent)] rounded-lg focus:outline-none px-2.5 py-1 flex-1 max-w-md zp-surface-transition"
+                      className="font-semibold text-xs bg-transparent border border-transparent hover:bg-black/[0.03] dark:hover:bg-white/[0.03] focus:border-[var(--zp-accent)] rounded-md focus:outline-none px-2 py-1 flex-1 max-w-md zp-surface-transition"
                       style={{ color: 'var(--zp-text-primary)' }}
                       placeholder="输入接口名称..."
                     />
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    {resolvedPreviewUrl &&
-                      resolvedPreviewUrl !== activeRequest.url.trim() && (
-                        <span
-                          className="hidden lg:inline text-xs truncate max-w-md px-2 py-0.5 rounded border"
-                          style={{
-                            color: 'var(--zp-text-muted)',
-                            borderColor: 'var(--zp-border-subtle)',
-                            backgroundColor: 'var(--zp-bg-surface)',
-                          }}
-                          title={`实际解析目标 URL: ${resolvedPreviewUrl}`}
-                        >
-                          解析地址:{' '}
-                          <span style={{ color: 'var(--zp-text-secondary)' }}>
-                            {resolvedPreviewUrl}
-                          </span>
-                        </span>
-                      )}
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
                       onClick={handleSaveRequest}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium hover:opacity-85 whitespace-nowrap shrink-0"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0 transition-colors"
                       style={{
-                        borderColor: savedRequestNotice ? '#10B981' : 'var(--zp-border)',
-                        backgroundColor: 'var(--zp-bg-surface)',
                         color: savedRequestNotice ? '#10B981' : 'var(--zp-text-secondary)',
                       }}
                       title="立即保存当前接口信息至本地磁盘 (快捷键 Ctrl+S / Cmd+S)"
@@ -2204,7 +2160,7 @@ export default function App() {
                       {savedRequestNotice ? (
                         <Check className="w-3.5 h-3.5 text-emerald-500" />
                       ) : (
-                        <Save className="w-3.5 h-3.5" style={{ color: 'var(--zp-accent)' }} />
+                        <Save className="w-3.5 h-3.5" />
                       )}
                       <span>{savedRequestNotice || '保存'}</span>
                     </button>
@@ -2216,12 +2172,8 @@ export default function App() {
                         setCopiedCurlQuick(true);
                         setTimeout(() => setCopiedCurlQuick(false), 1800);
                       }}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium hover:opacity-85 whitespace-nowrap shrink-0"
-                      style={{
-                        borderColor: 'var(--zp-border)',
-                        backgroundColor: 'var(--zp-bg-surface)',
-                        color: 'var(--zp-text-secondary)',
-                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap shrink-0 transition-colors"
+                      style={{ color: 'var(--zp-text-secondary)' }}
                       title="一键复制当前请求的 cURL 命令"
                     >
                       {copiedCurlQuick ? (
@@ -2234,10 +2186,10 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Bottom Row: Flush Rounded-xl URL Omnibar + Primary Send CTA */}
-                <div className="flex items-center gap-2.5">
+                {/* Bottom Row: Flush Rounded-lg URL Omnibar + Primary Send CTA */}
+                <div className="flex items-center gap-2">
                   <div
-                    className="flex-1 flex items-center rounded-[10px] border zp-surface-transition focus-within:border-[var(--zp-accent)]"
+                    className="flex-1 flex items-center rounded-lg border zp-surface-transition focus-within:border-[var(--zp-accent)]"
                     style={{
                       backgroundColor: 'var(--zp-bg-input)',
                       borderColor: 'var(--zp-border)',
@@ -2265,7 +2217,7 @@ export default function App() {
                         }
                       }}
                       variant="method"
-                      minWidth={135}
+                      minWidth={142}
                       options={HTTP_METHODS.map((m) => ({
                         value: m,
                         label: m,
@@ -2294,7 +2246,7 @@ export default function App() {
                     type="button"
                     onClick={() => handleSendRequest()}
                     disabled={loadingReqId === activeRequest.id}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-[10px] text-xs font-semibold transition-all hover:opacity-95 active:scale-[0.98] disabled:opacity-50 whitespace-nowrap shrink-0"
+                    className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold transition-all hover:opacity-95 active:scale-[0.98] disabled:opacity-50 whitespace-nowrap shrink-0"
                     style={{
                       backgroundColor: 'var(--zp-accent)',
                       color: 'var(--zp-accent-fg)',
@@ -2317,17 +2269,17 @@ export default function App() {
                   className={`${
                     responseExpanded ? 'row-span-3' : 'row-span-6'
                   } flex flex-col border-b min-h-0 zp-surface-transition`}
-                  style={{ borderColor: 'var(--zp-border)' }}
+                  style={{ borderColor: 'var(--zp-border-subtle)' }}
                 >
-                  {/* Request Builder Sub-Tabs with Unified Rounded-lg Sliding Pill + Icons */}
+                  {/* Postman-style Flat Underline Sub-Tabs (No Pill Boxes / Borders) */}
                   <div
-                    className="flex items-center justify-between px-4 py-1.5 border-b text-xs shrink-0 zp-surface-transition"
+                    className="flex items-center justify-between px-4 border-b text-xs shrink-0 zp-surface-transition"
                     style={{
-                      backgroundColor: 'var(--zp-bg-surface)',
+                      backgroundColor: 'var(--zp-bg-canvas)',
                       borderColor: 'var(--zp-border-subtle)',
                     }}
                   >
-                    <div className="flex items-center gap-1 overflow-x-auto py-0.5">
+                    <div className="flex items-center gap-5 overflow-x-auto">
                       {reqSubTabItems.map((tab) => {
                         const active = reqSubTab === tab.id;
                         return (
@@ -2335,46 +2287,33 @@ export default function App() {
                             key={tab.id}
                             type="button"
                             onClick={() => setReqSubTab(tab.id)}
-                            className="relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap shrink-0"
+                            className="relative inline-flex items-center gap-1.5 py-2 font-medium transition-colors whitespace-nowrap shrink-0 hover:opacity-90"
                             style={{
                               color: active
                                 ? 'var(--zp-text-primary)'
                                 : 'var(--zp-text-secondary)',
                             }}
                           >
-                            {active && (
-                              <motion.div
-                                layoutId="req-builder-tab-pill"
-                                transition={{ type: 'spring', stiffness: 450, damping: 34 }}
-                                className="absolute inset-0 rounded-lg border"
-                                style={{
-                                  backgroundColor: 'var(--zp-bg-elevated)',
-                                  borderColor: 'var(--zp-border)',
-                                }}
-                              />
-                            )}
-                            <span
-                              className="relative z-10"
-                              style={{ color: active ? 'var(--zp-accent)' : 'currentColor' }}
-                            >
-                              {tab.icon}
-                            </span>
-                            <span className="relative z-10">{tab.label}</span>
+                            <span>{tab.label}</span>
                             {typeof tab.count === 'number' && tab.count > 0 && (
                               <span
-                                className="relative z-10 font-mono-tabular text-xs font-semibold"
+                                className="text-xs font-semibold"
                                 style={{ color: 'var(--zp-accent)' }}
                               >
                                 ({tab.count})
                               </span>
                             )}
-                            {tab.badge && (
+                            {tab.hasDot && (
                               <span
-                                className="relative z-10 font-mono-tabular text-[11px]"
-                                style={{ color: 'var(--zp-accent)' }}
-                              >
-                                · {tab.badge}
-                              </span>
+                                className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"
+                                aria-hidden="true"
+                              />
+                            )}
+                            {active && (
+                              <span
+                                className="absolute bottom-0 left-0 right-0 h-[2px]"
+                                style={{ backgroundColor: 'var(--zp-accent)' }}
+                              />
                             )}
                           </button>
                         );
@@ -2422,239 +2361,19 @@ export default function App() {
                         )}
 
                         {reqSubTab === 'auth' && (
-                          <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-                            <div className="flex flex-wrap items-center gap-3">
-                              <span
-                                className="font-medium"
-                                style={{ color: 'var(--zp-text-secondary)' }}
-                              >
-                                鉴权模式 (Authorization):
-                              </span>
-                              <div
-                                className="inline-flex items-center gap-1 p-1 rounded-lg border"
-                                style={{
-                                  backgroundColor: 'var(--zp-bg-surface)',
-                                  borderColor: 'var(--zp-border)',
-                                }}
-                              >
-                                {(
-                                  [
-                                    { id: 'none', label: 'No Auth (无鉴权)' },
-                                    { id: 'bearer', label: 'Bearer Token' },
-                                    { id: 'basic', label: 'Basic Auth' },
-                                    { id: 'apikey', label: 'API Key' },
-                                  ] as const
-                                ).map((t) => {
-                                  const active = activeRequest.auth.type === t.id;
-                                  return (
-                                    <button
-                                      key={t.id}
-                                      type="button"
-                                      onClick={() =>
-                                        updateActiveRequest({
-                                          auth: { ...activeRequest.auth, type: t.id },
-                                        })
-                                      }
-                                      className="px-3 py-1 rounded-md font-medium transition-colors whitespace-nowrap shrink-0"
-                                      style={{
-                                        backgroundColor: active
-                                          ? 'var(--zp-accent)'
-                                          : 'transparent',
-                                        color: active
-                                          ? 'var(--zp-accent-fg)'
-                                          : 'var(--zp-text-secondary)',
-                                      }}
-                                    >
-                                      {t.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            {activeRequest.auth.type === 'none' && (
-                              <p style={{ color: 'var(--zp-text-muted)' }}>
-                                当前请求不自动附加额外鉴权头。
-                              </p>
-                            )}
-
-                            {activeRequest.auth.type === 'bearer' && (
-                              <div className="max-w-xl space-y-2">
-                                <label
-                                  className="block font-medium"
-                                  style={{ color: 'var(--zp-text-secondary)' }}
-                                >
-                                  Bearer Token (自动注入{' '}
-                                  <code className="font-mono-tabular">
-                                    Authorization: Bearer &lt;token&gt;
-                                  </code>
-                                  )
-                                </label>
-                                <input
-                                  type="text"
-                                  value={activeRequest.auth.bearerToken || ''}
-                                  onChange={(e) =>
-                                    updateActiveRequest({
-                                      auth: {
-                                        ...activeRequest.auth,
-                                        bearerToken: e.target.value,
-                                      },
-                                    })
-                                  }
-                                  placeholder="输入 Token 或使用 {{auth_token}}"
-                                  className="w-full px-3.5 py-2 rounded-lg border font-mono-tabular text-xs focus:outline-none"
-                                  style={{
-                                    backgroundColor: 'var(--zp-bg-input)',
-                                    borderColor: 'var(--zp-border)',
-                                    color: 'var(--zp-accent)',
-                                  }}
-                                />
-                              </div>
-                            )}
-
-                            {activeRequest.auth.type === 'basic' && (
-                              <div className="max-w-xl grid grid-cols-2 gap-3">
-                                <div className="space-y-1.5">
-                                  <label
-                                    className="block font-medium"
-                                    style={{ color: 'var(--zp-text-secondary)' }}
-                                  >
-                                    用户名 (Username)
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={activeRequest.auth.basicUsername || ''}
-                                    onChange={(e) =>
-                                      updateActiveRequest({
-                                        auth: {
-                                          ...activeRequest.auth,
-                                          basicUsername: e.target.value,
-                                        },
-                                      })
-                                    }
-                                    placeholder="Username"
-                                    className="w-full px-3 py-2 rounded-lg border font-mono-tabular text-xs focus:outline-none"
-                                    style={{
-                                      backgroundColor: 'var(--zp-bg-input)',
-                                      borderColor: 'var(--zp-border)',
-                                      color: 'var(--zp-text-primary)',
-                                    }}
-                                  />
-                                </div>
-                                <div className="space-y-1.5">
-                                  <label
-                                    className="block font-medium"
-                                    style={{ color: 'var(--zp-text-secondary)' }}
-                                  >
-                                    密码 (Password)
-                                  </label>
-                                  <input
-                                    type="password"
-                                    value={activeRequest.auth.basicPassword || ''}
-                                    onChange={(e) =>
-                                      updateActiveRequest({
-                                        auth: {
-                                          ...activeRequest.auth,
-                                          basicPassword: e.target.value,
-                                        },
-                                      })
-                                    }
-                                    placeholder="Password"
-                                    className="w-full px-3 py-2 rounded-lg border font-mono-tabular text-xs focus:outline-none"
-                                    style={{
-                                      backgroundColor: 'var(--zp-bg-input)',
-                                      borderColor: 'var(--zp-border)',
-                                      color: 'var(--zp-text-primary)',
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                            )}
-
-                            {activeRequest.auth.type === 'apikey' && (
-                              <div className="max-w-2xl grid grid-cols-3 gap-3">
-                                <div className="space-y-1.5">
-                                  <label
-                                    className="block font-medium"
-                                    style={{ color: 'var(--zp-text-secondary)' }}
-                                  >
-                                    Key 名称
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={activeRequest.auth.apiKeyName || ''}
-                                    onChange={(e) =>
-                                      updateActiveRequest({
-                                        auth: {
-                                          ...activeRequest.auth,
-                                          apiKeyName: e.target.value,
-                                        },
-                                      })
-                                    }
-                                    placeholder="X-API-Key"
-                                    className="w-full px-3 py-2 rounded-lg border font-mono-tabular text-xs focus:outline-none"
-                                    style={{
-                                      backgroundColor: 'var(--zp-bg-input)',
-                                      borderColor: 'var(--zp-border)',
-                                      color: 'var(--zp-text-primary)',
-                                    }}
-                                  />
-                                </div>
-                                <div className="space-y-1.5">
-                                  <label
-                                    className="block font-medium"
-                                    style={{ color: 'var(--zp-text-secondary)' }}
-                                  >
-                                    Key 值
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={activeRequest.auth.apiKeyValue || ''}
-                                    onChange={(e) =>
-                                      updateActiveRequest({
-                                        auth: {
-                                          ...activeRequest.auth,
-                                          apiKeyValue: e.target.value,
-                                        },
-                                      })
-                                    }
-                                    placeholder="sk-..."
-                                    className="w-full px-3 py-2 rounded-lg border font-mono-tabular text-xs focus:outline-none"
-                                    style={{
-                                      backgroundColor: 'var(--zp-bg-input)',
-                                      borderColor: 'var(--zp-border)',
-                                      color: 'var(--zp-accent)',
-                                    }}
-                                  />
-                                </div>
-                                <div className="space-y-1.5">
-                                  <label
-                                    className="block font-medium"
-                                    style={{ color: 'var(--zp-text-secondary)' }}
-                                  >
-                                    注入位置
-                                  </label>
-                                  <CustomSelect
-                                    value={activeRequest.auth.apiKeyIn || 'header'}
-                                    onChange={(v) =>
-                                      updateActiveRequest({
-                                        auth: {
-                                          ...activeRequest.auth,
-                                          apiKeyIn: v as 'header' | 'query',
-                                        },
-                                      })
-                                    }
-                                    size="md"
-                                    minWidth={170}
-                                    options={[
-                                      { value: 'header', label: 'Header (请求头)' },
-                                      { value: 'query', label: 'Query Params (URL参数)' },
-                                    ]}
-                                  />
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                          <AuthPanel
+                            auth={activeRequest.auth}
+                            onChange={(nextAuth) => updateActiveRequest({ auth: nextAuth })}
+                            parentFolder={folders.find((f) => f.id === activeRequest.folderId)}
+                            onUpdateFolderAuth={(folderId, nextFolderAuth) =>
+                              setFolders((prev) =>
+                                prev.map((f) =>
+                                  f.id === folderId ? { ...f, auth: nextFolderAuth } : f
+                                )
+                              )
+                            }
+                            activeEnv={activeEnv}
+                          />
                         )}
 
                         {reqSubTab === 'body' && (

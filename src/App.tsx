@@ -1232,7 +1232,7 @@ export default function App() {
                       return (
                         <div
                           key={folder.id}
-                          className="space-y-0.5 relative"
+                          className="relative"
                           onDragOver={(e) => {
                             if (!dragState) return;
                             e.preventDefault();
@@ -1297,7 +1297,6 @@ export default function App() {
                                 )
                               );
                             }}
-                            onDoubleClick={(e) => handleStartRenameFolder(folder, e)}
                           >
                             <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-6">
                               <motion.span
@@ -1346,7 +1345,7 @@ export default function App() {
                               ) : (
                                 <span
                                   className="truncate select-none"
-                                  title="双击重命名集合，按住可拖动排序"
+                                  title="按住可拖动排序"
                                 >
                                   {folder.name}
                                 </span>
@@ -1447,9 +1446,10 @@ export default function App() {
                                 initial={{ height: 0, opacity: 0 }}
                                 animate={{ height: 'auto', opacity: 1 }}
                                 exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                                className="relative overflow-hidden pl-[35px] space-y-0.5 pt-0.5"
+                                transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
+                                className="overflow-hidden pl-[35px]"
                               >
+                                <div className="relative pt-1 space-y-0.5">
                                 {folderReqs.length === 0 ? (
                                   <div className="relative flex items-center h-7">
                                     <span
@@ -1553,9 +1553,6 @@ export default function App() {
                                               handleOpenRequestTab(req.id);
                                             }
                                           }}
-                                          onDoubleClick={(e) =>
-                                            handleStartRenameSidebarReq(req, e)
-                                          }
                                           className="relative ml-2 flex items-center h-8 px-1.5 rounded-[6px] text-xs cursor-pointer group transition-colors hover:bg-[var(--zp-bg-elevated)]"
                                           style={{
                                             backgroundColor: isSelected
@@ -1604,7 +1601,7 @@ export default function App() {
                                             ) : (
                                               <span
                                                 className="truncate font-medium select-none"
-                                                title="双击重命名接口，按住可拖动排序或移至其他目录"
+                                                title="按住可拖动排序或移至其他目录"
                                               >
                                                 {req.name}
                                               </span>
@@ -1669,6 +1666,7 @@ export default function App() {
                                     );
                                   })
                                 )}
+                                </div>
                               </motion.div>
                             )}
                           </AnimatePresence>

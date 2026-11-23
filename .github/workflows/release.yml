@@ -1,13 +1,10 @@
-name: OpenPost Rust Desktop Release (Win / macOS / Linux)
+name: OpenPost Tag Release (Win / macOS / Linux)
 
+# 仅允许通过推送 v* Git Tag 触发自动打包与 GitHub Releases 发布
 on:
   push:
-    branches:
-      - main
-      - master
     tags:
       - 'v*'
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,11 +15,25 @@ env:
 
 jobs:
   build-frontend:
-    name: Build Frontend Assets (Ubuntu Node 22)
+    name: Build Frontend Assets (${{ github.ref_name }})
     runs-on: ubuntu-24.04
+    outputs:
+      rel_tag: ${{ steps.meta.outputs.rel_tag }}
+      app_version: ${{ steps.meta.outputs.app_version }}
     steps:
-      - name: Checkout Repository
+      - name: Checkout Tag
         uses: actions/checkout@v7
+
+      - name: Resolve Version Metadata from Tag
+        id: meta
+        shell: bash
+        run: |
+          REL_TAG="${GITHUB_REF_NAME}"
+          APP_VERSION="${REL_TAG#v}"
+          APP_VERSION="${APP_VERSION#V}"
+          echo "rel_tag=${REL_TAG}" >> "$GITHUB_OUTPUT"
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building OpenPost tag=${REL_TAG}, version=${APP_VERSION}, repo=${GITHUB_REPOSITORY}"
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v7
@@ -35,6 +46,9 @@ jobs:
           npm install --no-package-lock --no-audit --no-fund
 
       - name: TypeScript Check & Build Frontend Dist
+        env:
+          VITE_APP_VERSION: ${{ steps.meta.outputs.app_version }}
+          VITE_GITHUB_REPO: ${{ github.repository }}
         run: |
           npm run lint
           npm run build
@@ -49,8 +63,6 @@ jobs:
   build-rust-desktop:
     name: Build Native Installer ${{ matrix.label }}
     needs: build-frontend
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -69,8 +81,13 @@ jobs:
             artifact_name: OpenPost-Linux-amd64-Installer
 
     runs-on: ${{ matrix.os }}
+    env:
+      REL_TAG: ${{ needs.build-frontend.outputs.rel_tag }}
+      APP_VERSION: ${{ needs.build-frontend.outputs.app_version }}
+      OPENPOST_APP_VERSION: ${{ needs.build-frontend.outputs.app_version }}
+      OPENPOST_GITHUB_REPO: ${{ github.repository }}
     steps:
-      - name: Checkout Repository
+      - name: Checkout Tag
         uses: actions/checkout@v7
 
       - name: Download Compiled Frontend Assets into dist/
@@ -103,6 +120,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path "release-dist" | Out-Null
 
+          $appVer = $env:APP_VERSION
           $icoPath = (Resolve-Path "public/icons/openpost_icon_pack/platform/windows/openpost.ico").Path
           $exePath = (Resolve-Path "rust-desktop/target/release/OpenPost.exe").Path
           $outSetup = Join-Path (Resolve-Path "release-dist").Path "OpenPost-Windows-x64-Setup.exe"
@@ -116,7 +134,7 @@ jobs:
           InstallDir "`$LOCALAPPDATA\Programs\OpenPost"
           InstallDirRegKey HKCU "Software\OpenPost" "Install_Dir"
           RequestExecutionLevel user
-          BrandingText "OpenPost v2.0.3 Native Rust Desktop Engine"
+          BrandingText "OpenPost v$appVer Native Rust Desktop Engine"
 
           !define MUI_ICON "$icoPath"
           !define MUI_UNICON "$icoPath"
@@ -144,7 +162,7 @@ jobs:
             WriteUninstaller "`$INSTDIR\Uninstall.exe"
 
             WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayName" "OpenPost - Local-First API Studio"
-            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayVersion" "2.0.3"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayVersion" "$appVer"
             WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "Publisher" "OpenPost Contributors"
             WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "DisplayIcon" "`$INSTDIR\OpenPost.exe"
             WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenPost" "InstallLocation" "`$INSTDIR"
@@ -221,9 +239,9 @@ jobs:
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
-            <string>2.0.3</string>
+            <string>${APP_VERSION}</string>
             <key>CFBundleVersion</key>
-            <string>2.0.3</string>
+            <string>${APP_VERSION}</string>
             <key>NSHighResolutionCapable</key>
             <true/>
           </dict>
@@ -238,7 +256,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-dist
-          DEB_DIR="deb-staging/openpost_2.0.3_amd64"
+          DEB_VER="${APP_VERSION//-/\~}"
+          DEB_DIR="deb-staging/openpost_${DEB_VER}_amd64"
           mkdir -p "$DEB_DIR/DEBIAN"
           mkdir -p "$DEB_DIR/usr/bin"
           mkdir -p "$DEB_DIR/usr/share/applications"
@@ -250,7 +269,7 @@ jobs:
 
           cat > "$DEB_DIR/DEBIAN/control" <<EOF
           Package: openpost
-          Version: 2.0.3
+          Version: ${DEB_VER}
           Section: devel
           Priority: optional
           Architecture: amd64
@@ -279,27 +298,121 @@ jobs:
           path: release-dist/*
           if-no-files-found: error
 
-      - name: Publish Direct Installers (.exe / .dmg / .deb) to GitHub Releases
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            REL_TAG="${GITHUB_REF_NAME}"
-          else
-            REL_TAG="v2.0.3"
-          fi
-          gh release view "$REL_TAG" >/dev/null 2>&1 || gh release create "$REL_TAG" --title "OpenPost $REL_TAG (Native Desktop Installers)" --notes "直接点击下方对应的原生安装包即可下载安装（基于 tao + wry 原生桌面窗口架构，无需解压）：
-          - **Windows 安装向导版 (NSIS Setup)**: \`OpenPost-Windows-x64-Setup.exe\`
-          - **macOS 原生镜像安装包**: \`OpenPost-macOS-Universal.dmg\`
-          - **Linux 原生安装包**: \`OpenPost-Linux-amd64.deb\`"
-          gh release delete-asset "$REL_TAG" "OpenPost-Windows-x64-Portable.exe" -y >/dev/null 2>&1 || true
-          gh release upload "$REL_TAG" release-dist/* --clobber
+  publish-release:
+    name: Publish GitHub Release (${{ needs.build-frontend.outputs.rel_tag }})
+    needs:
+      - build-frontend
+      - build-rust-desktop
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REL_TAG: ${{ needs.build-frontend.outputs.rel_tag }}
+      APP_VERSION: ${{ needs.build-frontend.outputs.app_version }}
+    steps:
+      - name: Checkout Repository (with History for Fallback Notes)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-          echo "### 📦 原生独立安装包直链下载（无需解压 .zip）" >> $GITHUB_STEP_SUMMARY
-          echo "> 提示：GitHub Actions 底部的 Artifacts 列表会被 GitHub 官方强制套一层 \`.zip\`；请直接点击下方 **GitHub Releases 直链** 下载原始安装包：" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          for f in release-dist/*; do
+      - name: Download All Platform Installers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: OpenPost-*-Installer
+          path: release-assets
+          merge-multiple: true
+
+      - name: Prepare Standardized 3-Theme Release Notes (新功能 / 改进 / 问题修复)
+        shell: bash
+        run: |
+          CHANGELOG_FILE="changelogs/${REL_TAG}.md"
+          OUT_NOTES="release-notes.md"
+
+          if [ -f "$CHANGELOG_FILE" ]; then
+            echo "Using dedicated changelog file: $CHANGELOG_FILE"
+            node -e '
+              const fs = require("fs");
+              const raw = fs.readFileSync(process.argv[1], "utf8");
+              const sections = { features: [], improvements: [], fixes: [] };
+              let current = null;
+              for (const line of raw.split(/\r?\n/)) {
+                const trimmed = line.trim();
+                const hMatch = trimmed.match(/^#{1,4}\s+(.+)$/);
+                if (hMatch) {
+                  const title = hMatch[1].toLowerCase();
+                  if (/新功能|新增|feature|added/.test(title)) current = "features";
+                  else if (/改进|优化|improv|chang|enhanc|perf/.test(title)) current = "improvements";
+                  else if (/问题修复|修复|bug|fix/.test(title)) current = "fixes";
+                  else current = null;
+                  continue;
+                }
+                const itemMatch = trimmed.match(/^[-*•]\s+(.+)$/);
+                if (itemMatch && current) {
+                  sections[current].push("- " + itemMatch[1].trim());
+                }
+              }
+              const blocks = [];
+              if (sections.features.length) blocks.push("## 新功能\n" + sections.features.join("\n"));
+              if (sections.improvements.length) blocks.push("## 改进\n" + sections.improvements.join("\n"));
+              if (sections.fixes.length) blocks.push("## 问题修复\n" + sections.fixes.join("\n"));
+              const out = blocks.length ? blocks.join("\n\n") + "\n" : raw;
+              fs.writeFileSync(process.argv[2], out, "utf8");
+            ' "$CHANGELOG_FILE" "$OUT_NOTES"
+          else
+            echo "No changelogs/${REL_TAG}.md found; generating standardized 3-theme notes from commits..."
+            PREV_TAG=$(git describe --tags --abbrev=0 "${REL_TAG}^" 2>/dev/null || echo "")
+            if [ -n "$PREV_TAG" ]; then
+              COMMITS=$(git log --pretty=format:"%s" "${PREV_TAG}..${REL_TAG}")
+            else
+              COMMITS=$(git log -n 20 --pretty=format:"%s" "${REL_TAG}")
+            fi
+            node -e '
+              const fs = require("fs");
+              const lines = (process.argv[1] || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+              const sections = { features: [], improvements: [], fixes: [] };
+              for (const msg of lines) {
+                if (/^merge\b/i.test(msg)) continue;
+                if (/^(feat|feature)(\(.+\))?:/i.test(msg)) {
+                  sections.features.push("- " + msg.replace(/^[^:]+:\s*/, ""));
+                } else if (/^(fix|bugfix|hotfix)(\(.+\))?:/i.test(msg)) {
+                  sections.fixes.push("- " + msg.replace(/^[^:]+:\s*/, ""));
+                } else {
+                  sections.improvements.push("- " + msg.replace(/^[^:]+:\s*/, ""));
+                }
+              }
+              const blocks = [];
+              blocks.push("## 新功能\n" + (sections.features.length ? sections.features.join("\n") : "- 本版本暂无新增功能"));
+              blocks.push("## 改进\n" + (sections.improvements.length ? sections.improvements.join("\n") : "- 常规构建与稳定性优化"));
+              blocks.push("## 问题修复\n" + (sections.fixes.length ? sections.fixes.join("\n") : "- 常规细节修复"));
+              fs.writeFileSync(process.argv[2], blocks.join("\n\n") + "\n", "utf8");
+            ' "$COMMITS" "$OUT_NOTES"
+          fi
+
+          cat "$OUT_NOTES"
+
+      - name: Create or Update GitHub Release & Upload Native Installers
+        shell: bash
+        run: |
+          PRERELEASE_FLAG=""
+          if [[ "$REL_TAG" == *-* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          if gh release view "$REL_TAG" >/dev/null 2>&1; then
+            gh release edit "$REL_TAG" --title "OpenPost $REL_TAG" --notes-file release-notes.md
+          else
+            gh release create "$REL_TAG" $PRERELEASE_FLAG --title "OpenPost $REL_TAG" --notes-file release-notes.md
+          fi
+
+          gh release upload "$REL_TAG" release-assets/* --clobber
+
+          echo "### OpenPost ${REL_TAG} 发布完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 原生安装包直链下载" >> "$GITHUB_STEP_SUMMARY"
+          for f in release-assets/*; do
             fname=$(basename "$f")
-            echo "- 🔗 [**点击直接下载 \`$fname\`**](https://github.com/${{ github.repository }}/releases/download/$REL_TAG/$fname)" >> $GITHUB_STEP_SUMMARY
+            echo "- [**下载 \`$fname\`**](https://github.com/${{ github.repository }}/releases/download/${REL_TAG}/${fname})" >> "$GITHUB_STEP_SUMMARY"
           done

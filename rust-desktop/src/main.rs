@@ -33,6 +33,13 @@ extern "system" {}
 
 include!(concat!(env!("OUT_DIR"), "/embedded_assets.rs"));
 
+const APP_VERSION: &str = match option_env!("OPENPOST_APP_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+const DEFAULT_GITHUB_REPO: &str = "Mayezi/OpenPost";
+
 #[derive(Debug, Clone, Copy)]
 enum DesktopCommand {
     Drag,
@@ -72,6 +79,37 @@ impl Default for ProxyConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct UpdateConfig {
+    #[serde(default)]
+    github_repo: String,
+    #[serde(default = "default_true")]
+    auto_check_on_startup: bool,
+    #[serde(default)]
+    include_prerelease: bool,
+    #[serde(default)]
+    ignored_version: String,
+    #[serde(default)]
+    last_checked_at: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            github_repo: DEFAULT_GITHUB_REPO.to_string(),
+            auto_check_on_startup: true,
+            include_prerelease: false,
+            ignored_version: String::new(),
+            last_checked_at: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct StorageConfig {
     storage_dir: String,
     auto_sync_to_disk: bool,
@@ -80,6 +118,8 @@ struct StorageConfig {
     verify_ssl: bool,
     #[serde(default)]
     proxy: ProxyConfig,
+    #[serde(default)]
+    update: UpdateConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +139,7 @@ struct UpdateStorageConfigPayload {
     request_timeout_ms: Option<u64>,
     verify_ssl: Option<bool>,
     proxy: Option<ProxyConfig>,
+    update: Option<UpdateConfig>,
     migrate_existing: Option<bool>,
     clean_old_dir: Option<bool>,
 }
@@ -117,6 +158,14 @@ struct ProxyRequestPayload {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ProxyTestPayload {
+    proxy: Option<ProxyConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateCheckPayload {
+    current_version: Option<String>,
+    include_prerelease: Option<bool>,
     proxy: Option<ProxyConfig>,
 }
 
@@ -188,7 +237,8 @@ fn default_vault_dir() -> PathBuf {
 fn load_storage_config() -> StorageConfig {
     let cfg_file = app_config_file_path();
     if let Ok(raw) = fs::read_to_string(&cfg_file) {
-        if let Ok(parsed) = serde_json::from_str::<StorageConfig>(&raw) {
+        if let Ok(mut parsed) = serde_json::from_str::<StorageConfig>(&raw) {
+            parsed.update.github_repo = DEFAULT_GITHUB_REPO.to_string();
             if !parsed.storage_dir.trim().is_empty() {
                 let _ = fs::create_dir_all(&parsed.storage_dir);
                 return parsed;
@@ -204,6 +254,7 @@ fn load_storage_config() -> StorageConfig {
         request_timeout_ms: 30000,
         verify_ssl: true,
         proxy: ProxyConfig::default(),
+        update: UpdateConfig::default(),
     };
     save_storage_config(&cfg);
     cfg
@@ -676,6 +727,341 @@ fn execute_rust_http_proxy(
     })
 }
 
+fn classify_asset_platform(filename: &str) -> &'static str {
+    let lower = filename.to_lowercase();
+    if lower.ends_with(".exe")
+        || lower.ends_with(".msi")
+        || lower.contains("windows")
+        || lower.contains("win")
+    {
+        "windows"
+    } else if lower.ends_with(".dmg")
+        || lower.ends_with(".pkg")
+        || lower.contains("macos")
+        || lower.contains("darwin")
+    {
+        "macos"
+    } else if lower.ends_with(".deb")
+        || lower.ends_with(".appimage")
+        || lower.ends_with(".rpm")
+        || lower.contains("linux")
+    {
+        "linux"
+    } else {
+        "other"
+    }
+}
+
+fn parse_semver_tuple(v: &str) -> Option<(u64, u64, u64, String)> {
+    let cleaned = v.trim().trim_start_matches(['v', 'V']);
+    let (core, pre) = match cleaned.split_once('-') {
+        Some((c, p)) => (c, p.split('+').next().unwrap_or("").to_string()),
+        None => (cleaned.split('+').next().unwrap_or(cleaned), String::new()),
+    };
+    let mut nums = core.split('.');
+    let major = nums.next()?.parse::<u64>().ok()?;
+    let minor = nums.next().unwrap_or("0").parse::<u64>().ok()?;
+    let patch = nums.next().unwrap_or("0").parse::<u64>().ok()?;
+    Some((major, minor, patch, pre))
+}
+
+fn compare_semver_str(a: &str, b: &str) -> std::cmp::Ordering {
+    match (parse_semver_tuple(a), parse_semver_tuple(b)) {
+        (Some((ma, mia, pa, prea)), Some((mb, mib, pb, preb))) => {
+            match (ma, mia, pa).cmp(&(mb, mib, pb)) {
+                std::cmp::Ordering::Equal => match (prea.is_empty(), preb.is_empty()) {
+                    (true, true) => std::cmp::Ordering::Equal,
+                    (true, false) => std::cmp::Ordering::Greater,
+                    (false, true) => std::cmp::Ordering::Less,
+                    (false, false) => prea.cmp(&preb),
+                },
+                ord => ord,
+            }
+        }
+        _ => a.cmp(b),
+    }
+}
+
+fn execute_github_update_check(body_str: &str, cfg: &StorageConfig) -> Value {
+    let payload = serde_json::from_str::<UpdateCheckPayload>(body_str).ok();
+    let repo = DEFAULT_GITHUB_REPO.to_string();
+    let current_ver = payload
+        .as_ref()
+        .and_then(|p| p.current_version.as_deref())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(APP_VERSION)
+        .trim_start_matches(['v', 'V'])
+        .to_string();
+    let include_pre = payload
+        .as_ref()
+        .and_then(|p| p.include_prerelease)
+        .unwrap_or(cfg.update.include_prerelease);
+    let proxy_cfg = payload
+        .as_ref()
+        .and_then(|p| p.proxy.as_ref())
+        .unwrap_or(&cfg.proxy);
+
+    let fetch_url = |target_url: &str, accept: &str| -> Result<(u16, String), String> {
+        let mut builder = ureq::AgentBuilder::new()
+            .timeout(Duration::from_secs(15))
+            .redirects(5);
+        if let Some(proxy_url) = resolve_proxy_url(proxy_cfg, target_url) {
+            if let Ok(p) = ureq::Proxy::new(&proxy_url) {
+                builder = builder.proxy(p);
+            }
+        }
+        let agent = builder.build();
+        let resp = match agent
+            .get(target_url)
+            .set("Accept", accept)
+            .set("User-Agent", &format!("OpenPost-Updater/{}", APP_VERSION))
+            .set("X-GitHub-Api-Version", "2022-11-28")
+            .call()
+        {
+            Ok(r) => r,
+            Err(ureq::Error::Status(_, r)) => r,
+            Err(ureq::Error::Transport(e)) => return Err(e.to_string()),
+        };
+        let status = resp.status();
+        let text = resp.into_string().unwrap_or_default();
+        Ok((status, text))
+    };
+
+    let releases_url = format!("https://api.github.com/repos/{}/releases?per_page=15", repo);
+    let (status, text) = match fetch_url(&releases_url, "application/vnd.github+json") {
+        Ok(res) => res,
+        Err(e) => {
+            return json!({
+                "ok": false,
+                "repo": &repo,
+                "error": format!("连接 GitHub 检查更新失败：{}", e)
+            });
+        }
+    };
+
+    if status == 404 {
+        return json!({
+            "ok": false,
+            "repo": &repo,
+            "error": format!("未找到 GitHub 仓库 {}，请确认仓库名称正确且为公开仓库。", &repo)
+        });
+    }
+    if status == 403 {
+        return json!({
+            "ok": false,
+            "repo": &repo,
+            "error": "GitHub API 访问受限（可能触发速率限制），请稍后重试或检查代理设置。"
+        });
+    }
+    if !(200..300).contains(&status) {
+        return json!({
+            "ok": false,
+            "repo": &repo,
+            "error": format!("GitHub API 返回异常状态码 HTTP {}", status)
+        });
+    }
+
+    let raw_list = serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default();
+    let mut valid_releases: Vec<Value> = raw_list
+        .into_iter()
+        .filter(|r| {
+            let is_draft = r.get("draft").and_then(Value::as_bool).unwrap_or(false);
+            let is_pre = r.get("prerelease").and_then(Value::as_bool).unwrap_or(false);
+            let has_tag = r
+                .get("tag_name")
+                .and_then(Value::as_str)
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+            !is_draft && (include_pre || !is_pre) && has_tag
+        })
+        .collect();
+
+    valid_releases.sort_by(|a, b| {
+        let ta = a.get("tag_name").and_then(Value::as_str).unwrap_or("");
+        let tb = b.get("tag_name").and_then(Value::as_str).unwrap_or("");
+        compare_semver_str(tb, ta)
+    });
+
+    if valid_releases.is_empty() {
+        let tags_url = format!("https://api.github.com/repos/{}/tags?per_page=15", repo);
+        if let Ok((200..=299, tags_text)) = fetch_url(&tags_url, "application/vnd.github+json") {
+            let mut tags: Vec<String> = serde_json::from_str::<Vec<Value>>(&tags_text)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|t| t.get("name").and_then(Value::as_str).map(str::to_string))
+                .filter(|name| parse_semver_tuple(name).is_some())
+                .collect();
+            tags.sort_by(|a, b| compare_semver_str(b, a));
+            if let Some(latest_tag) = tags.first() {
+                let latest_ver = latest_tag.trim_start_matches(['v', 'V']).to_string();
+                let raw_md_url = format!(
+                    "https://raw.githubusercontent.com/{}/{}/changelogs/{}.md",
+                    repo, latest_tag, latest_tag
+                );
+                let raw_changelog = match fetch_url(&raw_md_url, "text/plain") {
+                    Ok((200, body)) => body,
+                    _ => String::new(),
+                };
+                let has_update =
+                    compare_semver_str(&latest_ver, &current_ver) == std::cmp::Ordering::Greater;
+                let html_url = format!("https://github.com/{}/releases/tag/{}", repo, latest_tag);
+                return json!({
+                    "ok": true,
+                    "currentVersion": &current_ver,
+                    "latestVersion": &latest_ver,
+                    "latestTag": latest_tag,
+                    "hasUpdate": has_update,
+                    "releaseName": format!("OpenPost {}", latest_tag),
+                    "publishedAt": "",
+                    "htmlUrl": &html_url,
+                    "rawChangelog": &raw_changelog,
+                    "assets": [],
+                    "releases": [{
+                        "tag": latest_tag,
+                        "version": &latest_ver,
+                        "name": format!("OpenPost {}", latest_tag),
+                        "publishedAt": "",
+                        "htmlUrl": &html_url,
+                        "prerelease": latest_tag.contains('-'),
+                        "body": &raw_changelog,
+                        "assets": []
+                    }],
+                    "repo": &repo
+                });
+            }
+        }
+
+        return json!({
+            "ok": true,
+            "currentVersion": &current_ver,
+            "latestVersion": &current_ver,
+            "latestTag": format!("v{}", &current_ver),
+            "hasUpdate": false,
+            "releaseName": format!("OpenPost v{}", &current_ver),
+            "publishedAt": "",
+            "htmlUrl": format!("https://github.com/{}/releases", &repo),
+            "rawChangelog": "",
+            "assets": [],
+            "releases": [],
+            "repo": &repo
+        });
+    }
+
+    let mut mapped_releases = Vec::new();
+    for (idx, r) in valid_releases.iter().enumerate() {
+        let tag = r.get("tag_name").and_then(Value::as_str).unwrap_or("").to_string();
+        let version = tag.trim_start_matches(['v', 'V']).to_string();
+        let name = r
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("OpenPost {}", tag));
+        let published_at = r.get("published_at").and_then(Value::as_str).unwrap_or("").to_string();
+        let html_url = r
+            .get("html_url")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("https://github.com/{}/releases/tag/{}", repo, tag));
+        let prerelease = r.get("prerelease").and_then(Value::as_bool).unwrap_or(false);
+        let mut body = r.get("body").and_then(Value::as_str).unwrap_or("").to_string();
+
+        if idx == 0 && body.trim().is_empty() {
+            let raw_md_url = format!(
+                "https://raw.githubusercontent.com/{}/{}/changelogs/{}.md",
+                repo, tag, tag
+            );
+            if let Ok((200, md_text)) = fetch_url(&raw_md_url, "text/plain") {
+                if !md_text.trim().is_empty() {
+                    body = md_text;
+                }
+            }
+        }
+
+        let assets: Vec<Value> = r
+            .get("assets")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .map(|a| {
+                        let fname = a.get("name").and_then(Value::as_str).unwrap_or("");
+                        json!({
+                            "name": fname,
+                            "size": a.get("size").and_then(Value::as_u64).unwrap_or(0),
+                            "downloadUrl": a.get("browser_download_url").and_then(Value::as_str).unwrap_or(""),
+                            "contentType": a.get("content_type").and_then(Value::as_str).unwrap_or("application/octet-stream"),
+                            "platform": classify_asset_platform(fname)
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        mapped_releases.push(json!({
+            "tag": tag,
+            "version": version,
+            "name": name,
+            "publishedAt": published_at,
+            "htmlUrl": html_url,
+            "prerelease": prerelease,
+            "body": body,
+            "assets": assets
+        }));
+    }
+
+    let latest_ver = mapped_releases[0]
+        .get("version")
+        .and_then(Value::as_str)
+        .unwrap_or(&current_ver)
+        .to_string();
+    let latest_tag = mapped_releases[0]
+        .get("tag")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let release_name = mapped_releases[0]
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let published_at = mapped_releases[0]
+        .get("publishedAt")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let html_url = mapped_releases[0]
+        .get("htmlUrl")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let raw_changelog = mapped_releases[0]
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let latest_assets = mapped_releases[0]
+        .get("assets")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let has_update =
+        compare_semver_str(&latest_ver, &current_ver) == std::cmp::Ordering::Greater;
+
+    json!({
+        "ok": true,
+        "currentVersion": current_ver,
+        "latestVersion": latest_ver,
+        "latestTag": latest_tag,
+        "hasUpdate": has_update,
+        "releaseName": release_name,
+        "publishedAt": published_at,
+        "htmlUrl": html_url,
+        "rawChangelog": raw_changelog,
+        "assets": latest_assets,
+        "releases": mapped_releases,
+        "repo": repo
+    })
+}
+
 fn read_http_request(stream: &mut TcpStream) -> Option<(String, String, String)> {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let mut data = Vec::with_capacity(16384);
@@ -755,9 +1141,32 @@ fn handle_client(
             &json!({
                 "ok": true,
                 "engine": "OpenPost-Rust-Native-Core",
-                "version": "2.0.3"
+                "version": APP_VERSION
             }),
         );
+        return;
+    }
+
+    if path_only == "/api/app/version" && method == "GET" {
+        send_json_response(
+            &mut stream,
+            "200 OK",
+            &json!({
+                "ok": true,
+                "version": APP_VERSION,
+                "tag": format!("v{}", APP_VERSION),
+                "githubRepo": DEFAULT_GITHUB_REPO,
+                "platform": env::consts::OS,
+                "arch": env::consts::ARCH
+            }),
+        );
+        return;
+    }
+
+    if path_only == "/api/update/check" && method == "POST" {
+        let cfg = state.lock().unwrap().clone();
+        let result = execute_github_update_check(&body_str, &cfg);
+        send_json_response(&mut stream, "200 OK", &result);
         return;
     }
 
@@ -895,6 +1304,9 @@ fn handle_client(
         }
         if let Some(p) = payload.proxy {
             cfg.proxy = p;
+        }
+        if let Some(u) = payload.update {
+            cfg.update = u;
         }
 
         save_storage_config(&cfg);

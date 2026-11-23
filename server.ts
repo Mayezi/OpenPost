@@ -22,6 +22,14 @@ interface ProxyConfig {
   bypass?: string;
 }
 
+interface UpdateConfig {
+  githubRepo: string;
+  autoCheckOnStartup: boolean;
+  includePrerelease: boolean;
+  ignoredVersion?: string;
+  lastCheckedAt?: string;
+}
+
 interface StorageConfig {
   storageDir: string;
   autoSyncToDisk: boolean;
@@ -29,8 +37,30 @@ interface StorageConfig {
   requestTimeoutMs: number;
   verifySsl: boolean;
   proxy?: ProxyConfig;
+  update?: UpdateConfig;
   updatedAt: string;
 }
+
+function readPackageVersion(): string {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8');
+    const parsed = JSON.parse(raw) as { version?: string };
+    return (process.env.OPENPOST_APP_VERSION || parsed.version || '0.6.0').replace(/^v/i, '');
+  } catch {
+    return (process.env.OPENPOST_APP_VERSION || '0.6.0').replace(/^v/i, '');
+  }
+}
+
+const APP_VERSION = readPackageVersion();
+const DEFAULT_GITHUB_REPO = 'Mayezi/OpenPost';
+
+const DEFAULT_UPDATE_CONFIG: UpdateConfig = {
+  githubRepo: DEFAULT_GITHUB_REPO,
+  autoCheckOnStartup: true,
+  includePrerelease: false,
+  ignoredVersion: '',
+  lastCheckedAt: '',
+};
 
 const DEFAULT_PROXY_CONFIG: ProxyConfig = {
   mode: 'none',
@@ -44,6 +74,7 @@ const DEFAULT_PROXY_CONFIG: ProxyConfig = {
 
 const DEFAULT_CONFIG_FILE = path.join(__dirname, '.openpost-storage-config.json');
 const DEFAULT_VAULT_DIR = path.join(__dirname, 'openpost_vault');
+const CHANGELOGS_DIR = path.join(__dirname, 'changelogs');
 
 function loadStorageConfig(): StorageConfig {
   try {
@@ -57,6 +88,13 @@ function loadStorageConfig(): StorageConfig {
         requestTimeoutMs: parsed.requestTimeoutMs ?? 30000,
         verifySsl: parsed.verifySsl ?? true,
         proxy: parsed.proxy ? { ...DEFAULT_PROXY_CONFIG, ...parsed.proxy } : DEFAULT_PROXY_CONFIG,
+        update: parsed.update
+          ? {
+              ...DEFAULT_UPDATE_CONFIG,
+              ...parsed.update,
+              githubRepo: DEFAULT_GITHUB_REPO,
+            }
+          : { ...DEFAULT_UPDATE_CONFIG },
         updatedAt: parsed.updatedAt || new Date().toISOString(),
       };
     }
@@ -70,6 +108,7 @@ function loadStorageConfig(): StorageConfig {
     requestTimeoutMs: 30000,
     verifySsl: true,
     proxy: { ...DEFAULT_PROXY_CONFIG },
+    update: { ...DEFAULT_UPDATE_CONFIG },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -147,7 +186,18 @@ async function startServer() {
   app.use(express.text({ type: ['text/*', 'application/xml', 'application/graphql'], limit: '50mb' }));
 
   app.get('/api/health', (_req: Request, res: Response) => {
-    res.status(200).json({ ok: true, engine: 'OpenPost-Local-Runtime', version: '2.0.3' });
+    res.status(200).json({ ok: true, engine: 'OpenPost-Local-Runtime', version: APP_VERSION });
+  });
+
+  app.get('/api/app/version', (_req: Request, res: Response) => {
+    res.status(200).json({
+      ok: true,
+      version: APP_VERSION,
+      tag: `v${APP_VERSION}`,
+      githubRepo: DEFAULT_GITHUB_REPO,
+      platform: os.platform(),
+      arch: os.arch(),
+    });
   });
 
   // ============================================================================
@@ -183,6 +233,7 @@ async function startServer() {
       requestTimeoutMs,
       verifySsl,
       proxy,
+      update,
       migrateExisting = true,
       cleanOldDir = false,
     } = req.body || {};
@@ -235,6 +286,9 @@ async function startServer() {
       proxy: proxy
         ? { ...DEFAULT_PROXY_CONFIG, ...currentConfig.proxy, ...proxy }
         : currentConfig.proxy || DEFAULT_PROXY_CONFIG,
+      update: update
+        ? { ...DEFAULT_UPDATE_CONFIG, ...currentConfig.update, ...update }
+        : currentConfig.update || DEFAULT_UPDATE_CONFIG,
       updatedAt: new Date().toISOString(),
     };
     saveStorageConfig(currentConfig);
@@ -311,6 +365,244 @@ async function startServer() {
       res.status(500).json({
         ok: false,
         error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
+
+  // ============================================================================
+  // 1.5 GITHUB RELEASES UPDATE CHECKER & LOCAL CHANGELOG ARCHIVE API
+  // ============================================================================
+  app.get('/api/update/changelogs', (_req: Request, res: Response) => {
+    try {
+      if (!fs.existsSync(CHANGELOGS_DIR)) {
+        res.status(200).json({ ok: true, items: [] });
+        return;
+      }
+      const files = fs
+        .readdirSync(CHANGELOGS_DIR)
+        .filter((f) => f.endsWith('.md') && f.toLowerCase() !== 'readme.md');
+      const items = files
+        .map((filename) => {
+          const tag = filename.replace(/\.md$/i, '');
+          const version = tag.replace(/^v/i, '');
+          const content = fs.readFileSync(path.join(CHANGELOGS_DIR, filename), 'utf-8');
+          return { tag: tag.startsWith('v') ? tag : `v${version}`, version, filename, content };
+        })
+        .sort((a, b) => compareServerSemver(b.version, a.version));
+      res.status(200).json({ ok: true, items });
+    } catch (e: unknown) {
+      res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  app.post('/api/update/check', async (req: Request, res: Response) => {
+    const repo = DEFAULT_GITHUB_REPO;
+    const currentVersion = String(req.body?.currentVersion || APP_VERSION).replace(/^v/i, '');
+    const includePrerelease = Boolean(
+      req.body?.includePrerelease ?? currentConfig.update?.includePrerelease ?? false
+    );
+    const proxyCfg: ProxyConfig | undefined = req.body?.proxy || currentConfig.proxy;
+    const checkedAt = new Date().toISOString();
+
+    const fetchGithubText = async (targetUrl: string, accept = 'application/vnd.github+json') => {
+      const effectiveProxy = resolveEffectiveProxy(proxyCfg, targetUrl);
+      return executeNodeHttpRequest({
+        targetUrl,
+        method: 'GET',
+        headers: {
+          Accept: accept,
+          'User-Agent': `OpenPost-Updater/${APP_VERSION}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        timeoutMs: 15000,
+        verifySsl: currentConfig.verifySsl ?? true,
+        proxy: effectiveProxy,
+      });
+    };
+
+    try {
+      const releasesUrl = `https://api.github.com/repos/${repo}/releases?per_page=15`;
+      const ghRes = await fetchGithubText(releasesUrl);
+
+      if (ghRes.status === 404) {
+        res.status(200).json({
+          ok: false,
+          checkedAt,
+          repo,
+          error: `未找到 GitHub 仓库 ${repo}，请确认仓库名称正确且为公开仓库。`,
+        });
+        return;
+      }
+      if (ghRes.status === 403) {
+        res.status(200).json({
+          ok: false,
+          checkedAt,
+          repo,
+          error: 'GitHub API 访问受限（可能触发速率限制），请稍后重试或检查代理设置。',
+        });
+        return;
+      }
+      if (ghRes.status < 200 || ghRes.status >= 300) {
+        res.status(200).json({
+          ok: false,
+          checkedAt,
+          repo,
+          error: `GitHub API 返回异常状态码 HTTP ${ghRes.status}`,
+        });
+        return;
+      }
+
+      const rawList = JSON.parse(ghRes.body || '[]') as Array<{
+        tag_name?: string;
+        name?: string;
+        body?: string;
+        draft?: boolean;
+        prerelease?: boolean;
+        published_at?: string;
+        html_url?: string;
+        assets?: Array<{
+          name: string;
+          size: number;
+          browser_download_url: string;
+          content_type?: string;
+        }>;
+      }>;
+
+      const filtered = rawList
+        .filter((r) => !r.draft && (includePrerelease || !r.prerelease) && Boolean(r.tag_name))
+        .sort((a, b) => compareServerSemver(b.tag_name || '', a.tag_name || ''));
+
+      // Fallback to Git Tags if no GitHub Releases exist yet
+      if (filtered.length === 0) {
+        const tagsRes = await fetchGithubText(`https://api.github.com/repos/${repo}/tags?per_page=15`);
+        if (tagsRes.status >= 200 && tagsRes.status < 300) {
+          const tags = (JSON.parse(tagsRes.body || '[]') as Array<{ name?: string }>)
+            .map((t) => t.name || '')
+            .filter((name) => /^v?\d+\.\d+/i.test(name))
+            .sort((a, b) => compareServerSemver(b, a));
+
+          if (tags.length > 0) {
+            const latestTag = tags[0];
+            const latestVersion = latestTag.replace(/^v/i, '');
+            let rawChangelog = '';
+            try {
+              const mdRes = await fetchGithubText(
+                `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(latestTag)}/changelogs/${encodeURIComponent(latestTag)}.md`,
+                'text/plain'
+              );
+              if (mdRes.status === 200) rawChangelog = mdRes.body;
+            } catch {
+              // Ignore missing raw changelog
+            }
+            const hasUpdate = compareServerSemver(latestVersion, currentVersion) > 0;
+            res.status(200).json({
+              ok: true,
+              currentVersion,
+              latestVersion,
+              latestTag,
+              hasUpdate,
+              releaseName: `OpenPost ${latestTag}`,
+              publishedAt: '',
+              htmlUrl: `https://github.com/${repo}/releases/tag/${latestTag}`,
+              rawChangelog,
+              assets: [],
+              releases: [
+                {
+                  tag: latestTag,
+                  version: latestVersion,
+                  name: `OpenPost ${latestTag}`,
+                  publishedAt: '',
+                  htmlUrl: `https://github.com/${repo}/releases/tag/${latestTag}`,
+                  prerelease: latestTag.includes('-'),
+                  body: rawChangelog,
+                  assets: [],
+                },
+              ],
+              checkedAt,
+              repo,
+            });
+            return;
+          }
+        }
+
+        res.status(200).json({
+          ok: true,
+          currentVersion,
+          latestVersion: currentVersion,
+          latestTag: `v${currentVersion}`,
+          hasUpdate: false,
+          releaseName: `OpenPost v${currentVersion}`,
+          publishedAt: '',
+          htmlUrl: `https://github.com/${repo}/releases`,
+          rawChangelog: '',
+          assets: [],
+          releases: [],
+          checkedAt,
+          repo,
+        });
+        return;
+      }
+
+      const releases = filtered.map((r) => {
+        const tag = r.tag_name || '';
+        const version = tag.replace(/^v/i, '');
+        const assets = (r.assets || []).map((a) => ({
+          name: a.name,
+          size: Number(a.size) || 0,
+          downloadUrl: a.browser_download_url,
+          contentType: a.content_type || 'application/octet-stream',
+          platform: classifyServerAssetPlatform(a.name),
+        }));
+        return {
+          tag,
+          version,
+          name: r.name || `OpenPost ${tag}`,
+          publishedAt: r.published_at || '',
+          htmlUrl: r.html_url || `https://github.com/${repo}/releases/tag/${tag}`,
+          prerelease: Boolean(r.prerelease),
+          body: r.body || '',
+          assets,
+        };
+      });
+
+      const latest = releases[0];
+      // If GitHub Release body is empty, attempt loading changelogs/<tag>.md directly from the tag
+      if (!latest.body.trim()) {
+        try {
+          const mdRes = await fetchGithubText(
+            `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(latest.tag)}/changelogs/${encodeURIComponent(latest.tag)}.md`,
+            'text/plain'
+          );
+          if (mdRes.status === 200 && mdRes.body.trim()) {
+            latest.body = mdRes.body;
+          }
+        } catch {
+          // Ignore fallback error
+        }
+      }
+
+      const hasUpdate = compareServerSemver(latest.version, currentVersion) > 0;
+      res.status(200).json({
+        ok: true,
+        currentVersion,
+        latestVersion: latest.version,
+        latestTag: latest.tag,
+        hasUpdate,
+        releaseName: latest.name,
+        publishedAt: latest.publishedAt,
+        htmlUrl: latest.htmlUrl,
+        rawChangelog: latest.body,
+        assets: latest.assets,
+        releases,
+        checkedAt,
+        repo,
+      });
+    } catch (err: unknown) {
+      res.status(200).json({
+        ok: false,
+        checkedAt,
+        repo,
+        error: `连接 GitHub 检查更新失败：${err instanceof Error ? err.message : String(err)}`,
       });
     }
   });
@@ -494,6 +786,65 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`OpenPost Local API Engine running on http://0.0.0.0:${PORT}`);
   });
+}
+
+function classifyServerAssetPlatform(filename: string): 'windows' | 'macos' | 'linux' | 'other' {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.exe') || lower.endsWith('.msi') || lower.includes('windows') || lower.includes('win')) {
+    return 'windows';
+  }
+  if (lower.endsWith('.dmg') || lower.endsWith('.pkg') || lower.includes('macos') || lower.includes('darwin')) {
+    return 'macos';
+  }
+  if (lower.endsWith('.deb') || lower.endsWith('.appimage') || lower.endsWith('.rpm') || lower.includes('linux')) {
+    return 'linux';
+  }
+  return 'other';
+}
+
+function compareServerSemver(a: string, b: string): number {
+  const parse = (v: string) => {
+    const m = v
+      .trim()
+      .replace(/^v/i, '')
+      .match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?/);
+    if (!m) return null;
+    return {
+      major: Number(m[1] || 0),
+      minor: Number(m[2] || 0),
+      patch: Number(m[3] || 0),
+      pre: m[4] ? m[4].split('.') : [],
+    };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  if (!pa || !pb) return a.localeCompare(b, undefined, { numeric: true });
+  if (pa.major !== pb.major) return pa.major - pb.major;
+  if (pa.minor !== pb.minor) return pa.minor - pb.minor;
+  if (pa.patch !== pb.patch) return pa.patch - pb.patch;
+  if (pa.pre.length === 0 && pb.pre.length === 0) return 0;
+  if (pa.pre.length === 0) return 1;
+  if (pb.pre.length === 0) return -1;
+  const len = Math.max(pa.pre.length, pb.pre.length);
+  for (let i = 0; i < len; i++) {
+    const sa = pa.pre[i];
+    const sb = pb.pre[i];
+    if (sa === undefined) return -1;
+    if (sb === undefined) return 1;
+    const na = /^\d+$/.test(sa) ? Number(sa) : null;
+    const nb = /^\d+$/.test(sb) ? Number(sb) : null;
+    if (na !== null && nb !== null) {
+      if (na !== nb) return na - nb;
+    } else if (na !== null) {
+      return -1;
+    } else if (nb !== null) {
+      return 1;
+    } else {
+      const c = sa.localeCompare(sb);
+      if (c !== 0) return c;
+    }
+  }
+  return 0;
 }
 
 function getStandardStatusText(code: number): string {

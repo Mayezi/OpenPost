@@ -1,11 +1,23 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig } from 'vite';
+
+const pkg = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')
+) as { version?: string };
 
 export default defineConfig(() => {
+  const appVersion = (process.env.VITE_APP_VERSION || pkg.version || '0.6.0').replace(/^v/i, '');
+  const defaultGithubRepo = (process.env.VITE_GITHUB_REPO || 'Mayezi/OpenPost').trim();
+
   return {
     plugins: [react(), tailwindcss()],
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+      __DEFAULT_GITHUB_REPO__: JSON.stringify(defaultGithubRepo),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

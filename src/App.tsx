@@ -36,6 +36,7 @@ import {
   Pencil,
   Clock,
   Network,
+  ArrowUpCircle,
 } from 'lucide-react';
 import {
   ApiRequestItem,
@@ -47,6 +48,8 @@ import {
   HistoryEntry,
   HttpMethod,
   ProxyConfig,
+  UpdateCheckResult,
+  UpdateConfig,
 } from './types/api';
 import {
   AI_THEMES,
@@ -59,6 +62,14 @@ import {
   executeApiRequest,
   generateCodeSnippet,
 } from './utils/requestEngine';
+import {
+  APP_VERSION,
+  checkGithubUpdates,
+  GITHUB_UPDATE_REPO,
+  loadUpdateConfig,
+  normalizeVersion,
+  saveUpdateConfig,
+} from './utils/updateEngine';
 import { KeyValueTable } from './components/KeyValueTable';
 import { ResponseViewer } from './components/ResponseViewer';
 import { CustomSelect } from './components/CustomSelect';
@@ -70,6 +81,7 @@ import {
   SettingsCenterModal,
   SettingsTabId,
 } from './components/Modals';
+import { UpdateNotificationModal } from './components/UpdateModal';
 
 const STORAGE_KEYS = {
   THEME: 'openpost_theme_id_v4',
@@ -264,9 +276,151 @@ export default function App() {
     }
   }, [isSettingsOpen]);
 
+  // Software Update State (GitHub Releases)
+  const [appVersion, setAppVersion] = useState<string>(APP_VERSION);
+  const [updateConfig, setUpdateConfig] = useState<UpdateConfig>(() => loadUpdateConfig());
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [updateModalInitialMode, setUpdateModalInitialMode] = useState<'release' | 'history'>(
+    'release'
+  );
+  const startupUpdateCheckedRef = useRef(false);
+
+  const handleUpdateConfigChange = useCallback((next: UpdateConfig) => {
+    const fixed: UpdateConfig = { ...next, githubRepo: GITHUB_UPDATE_REPO };
+    setUpdateConfig(fixed);
+    saveUpdateConfig(fixed);
+  }, []);
+
+  const handleCheckForUpdates = useCallback(
+    async (opts?: {
+      manual?: boolean;
+      includePrereleaseOverride?: boolean;
+      versionOverride?: string;
+      ignoredVersionOverride?: string;
+    }) => {
+      const manual = Boolean(opts?.manual);
+      const effectiveIncludePre =
+        opts?.includePrereleaseOverride ?? updateConfig.includePrerelease;
+      const effectiveVersion = opts?.versionOverride || appVersion;
+      const effectiveIgnored = opts?.ignoredVersionOverride ?? updateConfig.ignoredVersion ?? '';
+
+      setCheckingUpdate(true);
+      try {
+        const result = await checkGithubUpdates({
+          currentVersion: effectiveVersion,
+          includePrerelease: effectiveIncludePre,
+          proxy: proxySummary,
+        });
+        setUpdateResult(result);
+
+        const nextCfg: UpdateConfig = {
+          ...updateConfig,
+          githubRepo: GITHUB_UPDATE_REPO,
+          includePrerelease: effectiveIncludePre,
+          lastCheckedAt: result.checkedAt,
+        };
+        setUpdateConfig(nextCfg);
+        saveUpdateConfig(nextCfg);
+
+        if (result.ok && result.hasUpdate) {
+          const isSkipped =
+            !manual &&
+            Boolean(effectiveIgnored) &&
+            normalizeVersion(effectiveIgnored) === normalizeVersion(result.latestVersion);
+          if (!isSkipped) {
+            if (manual) {
+              setIsSettingsOpen(false);
+            }
+            setUpdateModalInitialMode('release');
+            setIsUpdateModalOpen(true);
+          }
+        }
+      } finally {
+        setCheckingUpdate(false);
+      }
+    },
+    [appVersion, proxySummary, updateConfig]
+  );
+
+  const handleSkipUpdateVersion = useCallback(
+    (version: string) => {
+      const cleaned = normalizeVersion(version);
+      const next: UpdateConfig = {
+        ...updateConfig,
+        githubRepo: GITHUB_UPDATE_REPO,
+        ignoredVersion: cleaned,
+      };
+      handleUpdateConfigChange(next);
+      fetch('/api/storage/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          update: next,
+          migrateExisting: false,
+          cleanOldDir: false,
+        }),
+      }).catch(() => {});
+    },
+    [updateConfig, handleUpdateConfigChange]
+  );
+
+  // Hydrate runtime version & update preferences from backend and trigger startup auto-check
+  useEffect(() => {
+    if (startupUpdateCheckedRef.current) return;
+    startupUpdateCheckedRef.current = true;
+
+    let cancelled = false;
+    Promise.all([
+      fetch('/api/app/version')
+        .then((r) => r.json())
+        .catch(() => null),
+      fetch('/api/storage/config')
+        .then((r) => r.json())
+        .catch(() => null),
+    ]).then(([verData, cfgData]) => {
+      if (cancelled) return;
+      const runtimeVersion =
+        verData?.ok && verData.version ? normalizeVersion(String(verData.version)) : APP_VERSION;
+      setAppVersion(runtimeVersion);
+
+      const diskUpdate = cfgData?.ok && cfgData.config?.update ? cfgData.config.update : null;
+      const localUpdate = loadUpdateConfig();
+      const mergedUpdate: UpdateConfig = {
+        ...localUpdate,
+        ...(diskUpdate || {}),
+        githubRepo: GITHUB_UPDATE_REPO,
+      };
+      setUpdateConfig(mergedUpdate);
+      saveUpdateConfig(mergedUpdate);
+
+      if (mergedUpdate.autoCheckOnStartup) {
+        void handleCheckForUpdates({
+          manual: false,
+          includePrereleaseOverride: mergedUpdate.includePrerelease,
+          versionOverride: runtimeVersion,
+          ignoredVersionOverride: mergedUpdate.ignoredVersion || '',
+        });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [handleCheckForUpdates]);
+
   const openSettingsAt = (tab: SettingsTabId) => {
     setSettingsInitialTab(tab);
     setIsSettingsOpen(true);
+  };
+
+  const handleOpenUpdateCenter = (mode: 'release' | 'history' = 'release') => {
+    setUpdateModalInitialMode(mode);
+    setIsUpdateModalOpen(true);
+    if (mode === 'release' && !updateResult && !checkingUpdate) {
+      void handleCheckForUpdates({ manual: true });
+    }
   };
 
   // Close env popover on outside click
@@ -1028,6 +1182,34 @@ export default function App() {
                 <span
                   className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
                   style={{ backgroundColor: '#10B981' }}
+                />
+              )}
+            </button>
+
+            {/* CHECK FOR UPDATES & CHANGELOG BUTTON */}
+            <button
+              type="button"
+              onClick={() => handleOpenUpdateCenter('release')}
+              className="relative w-7 h-7 rounded-[6px] inline-flex items-center justify-center zp-surface-transition hover:bg-black/5 dark:hover:bg-white/5"
+              style={{
+                color:
+                  updateResult?.ok && updateResult.hasUpdate
+                    ? 'var(--zp-accent)'
+                    : 'var(--zp-text-secondary)',
+              }}
+              title={
+                updateResult?.ok && updateResult.hasUpdate
+                  ? `发现新版本 ${updateResult.latestTag}（点击查看更新说明与更新日志）`
+                  : `检查更新与更新日志（当前 v${normalizeVersion(appVersion)}）`
+              }
+            >
+              <ArrowUpCircle
+                className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-pulse' : ''}`}
+              />
+              {updateResult?.ok && updateResult.hasUpdate && (
+                <span
+                  className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: 'var(--zp-accent)' }}
                 />
               )}
             </button>
@@ -3027,6 +3209,31 @@ export default function App() {
         requests={requests}
         environments={environments}
         history={history}
+        appVersion={appVersion}
+        updateConfig={updateConfig}
+        onChangeUpdateConfig={handleUpdateConfigChange}
+        checkingUpdate={checkingUpdate}
+        updateResult={updateResult}
+        onCheckForUpdates={handleCheckForUpdates}
+        onOpenUpdateModal={handleOpenUpdateCenter}
+      />
+
+      <UpdateNotificationModal
+        isOpen={isUpdateModalOpen}
+        initialMode={updateModalInitialMode}
+        onClose={() => setIsUpdateModalOpen(false)}
+        currentVersion={appVersion}
+        githubRepo={GITHUB_UPDATE_REPO}
+        checking={checkingUpdate}
+        updateResult={updateResult}
+        onCheckNow={() => {
+          void handleCheckForUpdates({ manual: true });
+        }}
+        onSkipVersion={handleSkipUpdateVersion}
+        onOpenUpdateSettings={() => {
+          setIsUpdateModalOpen(false);
+          openSettingsAt('update');
+        }}
       />
 
       <EnvironmentModal

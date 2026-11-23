@@ -259,3 +259,57 @@ export interface ProxyConfig {
   bypass?: string;
 }
 
+export interface UpdateConfig {
+  githubRepo: string;
+  autoCheckOnStartup: boolean;
+  includePrerelease: boolean;
+  ignoredVersion?: string;
+  lastCheckedAt?: string;
+}
+
+export interface StructuredChangelog {
+  features: string[];
+  improvements: string[];
+  fixes: string[];
+}
+
+export interface ReleaseAsset {
+  name: string;
+  size: number;
+  downloadUrl: string;
+  contentType: string;
+  platform: 'windows' | 'macos' | 'linux' | 'other';
+}
+
+export interface ReleaseVersionEntry {
+  tag: string;
+  version: string;
+  name: string;
+  publishedAt: string;
+  htmlUrl?: string;
+  prerelease?: boolean;
+  rawBody: string;
+  changelog: StructuredChangelog;
+  assets: ReleaseAsset[];
+  source: 'github' | 'local';
+}
+
+export interface UpdateCheckResult {
+  ok: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  latestTag: string;
+  hasUpdate: boolean;
+  releaseName: string;
+  publishedAt: string;
+  htmlUrl: string;
+  rawChangelog: string;
+  changelog: StructuredChangelog;
+  assets: ReleaseAsset[];
+  releases: ReleaseVersionEntry[];
+  checkedAt: string;
+  repo: string;
+  error?: string;
+}
+
+

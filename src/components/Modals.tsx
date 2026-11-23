@@ -18,6 +18,10 @@ import {
   Moon,
   Network,
   FileJson,
+  ArrowUpCircle,
+  BookOpen,
+  AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
 import {
   ApiRequestItem,
@@ -28,6 +32,8 @@ import {
   ProxyConfig,
   ProxyProtocol,
   ThemePalette,
+  UpdateCheckResult,
+  UpdateConfig,
 } from '../types/api';
 import { KeyValueTable } from './KeyValueTable';
 import { CustomSelect } from './CustomSelect';
@@ -36,8 +42,12 @@ import {
   exportWorkspaceBundle,
   parseCurlCommand,
 } from '../utils/requestEngine';
+import {
+  GITHUB_UPDATE_REPO,
+  normalizeVersion,
+} from '../utils/updateEngine';
 
-export type SettingsTabId = 'general' | 'themes' | 'network' | 'storage';
+export type SettingsTabId = 'general' | 'themes' | 'network' | 'storage' | 'update';
 
 /* ==========================================================================
    1. MODERN SPLIT-PANE PREFERENCES MODAL
@@ -59,6 +69,16 @@ interface SettingsCenterModalProps {
   requests: ApiRequestItem[];
   environments: EnvironmentProfile[];
   history: HistoryEntry[];
+  appVersion: string;
+  updateConfig: UpdateConfig;
+  onChangeUpdateConfig: (next: UpdateConfig) => void;
+  checkingUpdate: boolean;
+  updateResult: UpdateCheckResult | null;
+  onCheckForUpdates: (opts?: {
+    manual?: boolean;
+    includePrereleaseOverride?: boolean;
+  }) => Promise<void>;
+  onOpenUpdateModal: (mode?: 'release' | 'history') => void;
 }
 
 export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
@@ -78,6 +98,13 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
   requests,
   environments,
   history,
+  appVersion,
+  updateConfig,
+  onChangeUpdateConfig,
+  checkingUpdate,
+  updateResult,
+  onCheckForUpdates,
+  onOpenUpdateModal,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
 
@@ -321,7 +348,34 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
       label: '存储与数据',
       icon: <HardDrive className="w-3.5 h-3.5" />,
     },
+    {
+      id: 'update',
+      label: '软件更新',
+      icon: <ArrowUpCircle className="w-3.5 h-3.5" />,
+    },
   ];
+
+  const hasAvailableUpdate = Boolean(updateResult?.ok && updateResult.hasUpdate);
+
+  const persistUpdateConfigToDisk = (nextUpdate: UpdateConfig) => {
+    const normalized: UpdateConfig = { ...nextUpdate, githubRepo: GITHUB_UPDATE_REPO };
+    onChangeUpdateConfig(normalized);
+    fetch('/api/storage/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        storageDir: pathInput.trim() || customStoragePath,
+        autoSyncToDisk,
+        maxHistoryItems: Number(maxHistoryItems) || 100,
+        requestTimeoutMs: Number(timeoutMs) || 30000,
+        verifySsl,
+        proxy: proxyConfig,
+        update: normalized,
+        migrateExisting: false,
+        cleanOldDir: false,
+      }),
+    }).catch(() => {});
+  };
 
   const activeNavLabel = navItems.find((n) => n.id === activeTab)?.label || '偏好设置';
 
@@ -393,7 +447,13 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
                       >
                         {item.icon}
                       </span>
-                      <span className="relative z-10 truncate">{item.label}</span>
+                      <span className="relative z-10 truncate flex-1">{item.label}</span>
+                      {item.id === 'update' && hasAvailableUpdate && (
+                        <span
+                          className="relative z-10 w-1.5 h-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: 'var(--zp-accent)' }}
+                        />
+                      )}
                     </button>
                   );
                 })}
@@ -949,6 +1009,203 @@ export const SettingsCenterModal: React.FC<SettingsCenterModalProps> = ({
                             label="迁移后清理原目录缓存"
                           />
                         </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* TAB 5: SOFTWARE UPDATE (GITHUB RELEASES) */}
+                  {activeTab === 'update' && (
+                    <motion.div
+                      key="tab-update"
+                      initial={{ opacity: 0, y: 3 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -3 }}
+                      transition={{ duration: 0.12 }}
+                      className="space-y-4 py-1"
+                    >
+                      {/* Version Status Card */}
+                      <div
+                        className="rounded-[8px] border p-3.5 flex items-center justify-between gap-3"
+                        style={{
+                          backgroundColor: 'var(--zp-bg-surface)',
+                          borderColor: hasAvailableUpdate
+                            ? 'var(--zp-accent)'
+                            : 'var(--zp-border-subtle)',
+                        }}
+                      >
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-semibold">
+                              OpenPost v{normalizeVersion(appVersion)}
+                            </span>
+                            {hasAvailableUpdate && updateResult ? (
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-[4px]"
+                                style={{
+                                  backgroundColor: 'var(--zp-accent-soft)',
+                                  color: 'var(--zp-accent)',
+                                }}
+                              >
+                                发现新版 {updateResult.latestTag}
+                              </span>
+                            ) : updateResult?.ok ? (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-[4px] bg-emerald-500/10 text-emerald-500">
+                                已是最新版本
+                              </span>
+                            ) : null}
+                          </div>
+                          <div
+                            className="text-[11px] truncate"
+                            style={{ color: 'var(--zp-text-muted)' }}
+                          >
+                            {updateConfig.lastCheckedAt
+                              ? `上次检查：${new Date(updateConfig.lastCheckedAt).toLocaleString()}`
+                              : '新版本源：GitHub Releases（按 Tag 发版）'}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onOpenUpdateModal('history');
+                            }}
+                            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-[6px] border text-xs font-medium hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors whitespace-nowrap"
+                            style={{
+                              borderColor: 'var(--zp-border-subtle)',
+                              backgroundColor: 'var(--zp-bg-canvas)',
+                              color: 'var(--zp-text-primary)',
+                            }}
+                          >
+                            <BookOpen className="w-3.5 h-3.5" style={{ color: 'var(--zp-text-secondary)' }} />
+                            <span>更新日志</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={checkingUpdate}
+                            onClick={() => {
+                              onCheckForUpdates({
+                                manual: true,
+                                includePrereleaseOverride: updateConfig.includePrerelease,
+                              });
+                            }}
+                            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[6px] text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+                            style={{
+                              backgroundColor: 'var(--zp-accent)',
+                              color: 'var(--zp-accent-fg)',
+                            }}
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin' : ''}`} />
+                            <span>{checkingUpdate ? '检查中...' : '检查更新'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Check Feedback Notice */}
+                      {updateResult && (
+                        <div
+                          className={`text-[11px] flex items-center justify-between gap-2 px-3 py-2 rounded-[6px] border ${
+                            !updateResult.ok
+                              ? 'text-rose-500 border-rose-500/25 bg-rose-500/5'
+                              : updateResult.hasUpdate
+                              ? 'border-[var(--zp-accent)]/40 bg-[var(--zp-accent-soft)]'
+                              : 'text-emerald-600 dark:text-emerald-400 border-emerald-500/25 bg-emerald-500/5'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {!updateResult.ok ? (
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            ) : (
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            )}
+                            <span className="truncate">
+                              {!updateResult.ok
+                                ? updateResult.error
+                                : updateResult.hasUpdate
+                                ? `检测到新版本 ${updateResult.latestTag}，可立即查看更新说明与安装包`
+                                : `当前 v${normalizeVersion(appVersion)} 已与 GitHub 最新 Tag (${updateResult.latestTag}) 同步`}
+                            </span>
+                          </div>
+                          {updateResult.ok && updateResult.hasUpdate && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onClose();
+                                onOpenUpdateModal('release');
+                              }}
+                              className="inline-flex items-center gap-1 font-semibold underline shrink-0"
+                              style={{ color: 'var(--zp-accent)' }}
+                            >
+                              <span>查看更新说明</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Update Behavior Toggles */}
+                      <div>
+                        <div
+                          className="py-2.5 border-b"
+                          style={{ borderColor: 'var(--zp-border-subtle)' }}
+                        >
+                          <ToggleSwitch
+                            size="sm"
+                            checked={updateConfig.autoCheckOnStartup}
+                            onChange={(next) =>
+                              persistUpdateConfigToDisk({
+                                ...updateConfig,
+                                autoCheckOnStartup: next,
+                              })
+                            }
+                            label="启动时自动检查 GitHub 新版本"
+                            description="发现新版本 Tag 时自动弹出更新说明与日志窗口"
+                          />
+                        </div>
+
+                        <div className="py-2.5">
+                          <ToggleSwitch
+                            size="sm"
+                            checked={updateConfig.includePrerelease}
+                            onChange={(next) =>
+                              persistUpdateConfigToDisk({
+                                ...updateConfig,
+                                includePrerelease: next,
+                              })
+                            }
+                            label="接收预发布版本 (Pre-release / Beta)"
+                            description="包含带 -beta、-rc 后缀的预发布 Tag"
+                          />
+                        </div>
+
+                        {updateConfig.ignoredVersion && (
+                          <div
+                            className="pt-2.5 border-t flex items-center justify-between text-[11px]"
+                            style={{
+                              borderColor: 'var(--zp-border-subtle)',
+                              color: 'var(--zp-text-muted)',
+                            }}
+                          >
+                            <span>
+                              当前已跳过自动提醒版本：v{normalizeVersion(updateConfig.ignoredVersion)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                persistUpdateConfigToDisk({
+                                  ...updateConfig,
+                                  ignoredVersion: '',
+                                })
+                              }
+                              className="font-medium hover:underline"
+                              style={{ color: 'var(--zp-accent)' }}
+                            >
+                              恢复提醒
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   )}

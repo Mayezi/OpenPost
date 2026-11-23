@@ -112,24 +112,27 @@ npm run build:desktop
 
 ---
 
-## 跨平台自动打包 (GitHub Actions: Win / macOS / Linux)
+## 跨平台自动打包与检查更新 (GitHub Releases)
 
-项目已内置完整的 GitHub Actions 跨平台打包工作流（位于 [`.github/workflows/release.yml`](.github/workflows/release.yml)），基于 **Node.js 22** 自动构建三大桌面平台运行包：
+项目内置完整的 GitHub Actions 跨平台打包工作流（位于 [`.github/workflows/release.yml`](.github/workflows/release.yml)）与桌面端检查更新机制：
 
-| 目标平台 | GitHub Runner | 产物归档名称 | 包含启动器 |
+| 目标平台 | GitHub Runner | 原生安装包产物 | 说明 |
 | :--- | :--- | :--- | :--- |
-| **Windows (x64)** | `windows-latest` | `OpenPost-Windows-x64.zip` | `OpenPost-Windows.bat` + 独立运行引擎 |
-| **macOS (Apple Silicon & Intel)** | `macos-latest` | `OpenPost-macOS-Universal.tar.gz` | `OpenPost-macOS.command` + 独立运行引擎 |
-| **Linux (x64)** | `ubuntu-latest` | `OpenPost-Linux-x64.tar.gz` | `OpenPost-Linux.sh` + 独立运行引擎 |
+| **Windows (x64)** | `windows-latest` | `OpenPost-Windows-x64-Setup.exe` | NSIS 原生安装向导 |
+| **macOS** | `macos-latest` | `OpenPost-macOS-Universal.dmg` | 原生 `.dmg` 镜像安装包 |
+| **Linux (amd64)** | `ubuntu-24.04` | `OpenPost-Linux-amd64.deb` | Debian/Ubuntu 原生安装包 |
 
-### 触发方式
-1. **日常构建验证与产物下载**：推送代码至 `main` 或 `master` 分支，或者在 GitHub 仓库的 **Actions** 页面手动点击 `Run workflow`，即可在 Workflow Artifacts 中直接下载 Windows / macOS / Linux 三端压缩包。
-2. **正式版本自动发版 (GitHub Releases)**：
-   ```bash
-   git tag v2.0.0
-   git push origin v2.0.0
-   ```
-   推送 `v*` 标签后，GitHub Actions 将自动执行类型检查、三端并行打包，并将生成的跨平台安装包自动发布至仓库的 **GitHub Releases** 页面。
+### 版本日志与 Tag 触发规则
+1. **仅通过 Git Tag 触发自动打包**：推送代码至普通分支不会触发构建；仅当推送 `v*` 标签（如 `v0.6.0`）时，才会自动打包三端原生安装包并发布至 GitHub Releases。
+2. **版本日志目录 (`changelogs/`)**：每个版本对应 `changelogs/vX.Y.Z.md`，版本说明严格包含 **新功能**、**改进**、**问题修复** 三大主题。发版工作流会自动读取对应版本的日志文件作为 GitHub Release 说明。
+3. **客户端自动检查更新**：内置绑定官方仓库 `Mayezi/OpenPost` 的 GitHub Releases 更新源，检测到新版本后自动弹窗展示三大主题更新说明、版本更新日志及对应平台安装包直链。
+
+```bash
+# 1. 新建更新日志 changelogs/v0.6.0.md（包含 新功能 / 改进 / 问题修复 三大主题）
+# 2. 创建并推送版本 Tag，自动触发三端打包与发布
+git tag v0.6.0
+git push origin v0.6.0
+```
 
 ---
 
